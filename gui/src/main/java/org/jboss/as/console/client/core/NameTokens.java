@@ -196,6 +196,8 @@ public class NameTokens {
         return DeploymentBrowserPresenter;
     }
 
+    public static final String ServerGroupDeployments = "sg-deployments";
+
 
     // ------------------------------------------------------
     // administration tokens below
