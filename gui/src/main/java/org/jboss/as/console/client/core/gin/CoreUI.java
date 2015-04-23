@@ -149,7 +149,7 @@ import org.jboss.as.console.client.standalone.runtime.VMMetricsPresenter;
 import org.jboss.as.console.client.tools.BrowserPresenter;
 import org.jboss.as.console.client.tools.ToolsPresenter;
 import org.jboss.as.console.client.tools.modelling.workbench.repository.RepositoryPresenter;
-import org.jboss.as.console.client.v3.deployment.ServerGroupDeploymentPresenter;
+import org.jboss.as.console.client.v3.deployment.DeploymentFinderPresenter;
 import org.jboss.as.console.client.widgets.forms.ApplicationMetaData;
 import org.jboss.as.console.mbui.behaviour.CoreGUIContext;
 import org.jboss.as.console.spi.GinExtension;
@@ -373,6 +373,7 @@ public interface CoreUI {
     AsyncProvider<NoServerPresenter> getNoServerPresenter();
 
     AsyncProvider<IiopOpenJdkPresenter> getIiopOpenJdkPresenter();
+    AsyncProvider<DeploymentFinderPresenter> getServerGroupDeploymentPresenter();
 
     Dispatcher getCircuitDispatcher();
 

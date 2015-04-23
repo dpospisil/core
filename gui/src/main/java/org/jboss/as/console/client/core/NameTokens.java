@@ -196,7 +196,7 @@ public class NameTokens {
         return DeploymentBrowserPresenter;
     }
 
-    public static final String ServerGroupDeployments = "sg-deployments";
+    public static final String DeploymentFinderPresenter = "deployments-finder";
 
 
     // ------------------------------------------------------
