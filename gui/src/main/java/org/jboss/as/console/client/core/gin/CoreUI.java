@@ -149,7 +149,8 @@ import org.jboss.as.console.client.standalone.runtime.VMMetricsPresenter;
 import org.jboss.as.console.client.tools.BrowserPresenter;
 import org.jboss.as.console.client.tools.ToolsPresenter;
 import org.jboss.as.console.client.tools.modelling.workbench.repository.RepositoryPresenter;
-import org.jboss.as.console.client.v3.deployment.DeploymentFinderPresenter;
+import org.jboss.as.console.client.v3.deployment.DeploymentContentFinder;
+import org.jboss.as.console.client.v3.deployment.DeploymentFinder;
 import org.jboss.as.console.client.widgets.forms.ApplicationMetaData;
 import org.jboss.as.console.mbui.behaviour.CoreGUIContext;
 import org.jboss.as.console.spi.GinExtension;
@@ -241,8 +242,10 @@ public interface CoreUI {
     // ----------------------------------------------------------------------
     AsyncProvider<ServerMgmtApplicationPresenter> getServerManagementAppPresenter();
     AsyncProvider<StandaloneDeploymentPresenter> getDeploymentBrowserPresenter();
+    AsyncProvider<DeploymentFinder> geDeploymentFinder();
+    AsyncProvider<DeploymentContentFinder> geDeploymentContentFinder();
 
-    DeploymentStore getDeploymentStore();
+    DeploymentStore getDeployments();
 
 
     // ----------------------------------------------------------------------
