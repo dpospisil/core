@@ -242,8 +242,6 @@ public interface CoreUI {
     // ----------------------------------------------------------------------
     AsyncProvider<ServerMgmtApplicationPresenter> getServerManagementAppPresenter();
     AsyncProvider<StandaloneDeploymentPresenter> getDeploymentBrowserPresenter();
-    AsyncProvider<DeploymentFinder> geDeploymentFinder();
-    AsyncProvider<DeploymentContentFinder> geDeploymentContentFinder();
 
     DeploymentStore getDeployments();
 
@@ -376,7 +374,8 @@ public interface CoreUI {
     AsyncProvider<NoServerPresenter> getNoServerPresenter();
 
     AsyncProvider<IiopOpenJdkPresenter> getIiopOpenJdkPresenter();
-    AsyncProvider<DeploymentFinderPresenter> getServerGroupDeploymentPresenter();
+    AsyncProvider<DeploymentFinder> getDeploymentFinder();
+    AsyncProvider<DeploymentContentFinder> getDeploymentContentFinder();
 
     Dispatcher getCircuitDispatcher();
 
