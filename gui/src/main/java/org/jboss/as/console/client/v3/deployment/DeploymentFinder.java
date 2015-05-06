@@ -85,7 +85,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
-import static java.util.Collections.singletonList;
 import static org.jboss.as.console.spi.OperationMode.Mode.DOMAIN;
 import static org.jboss.dmr.client.ModelDescriptionConstants.*;
 
@@ -116,10 +115,13 @@ public class DeploymentFinder
         void setPreview(SafeHtml html);
         void toggleScrolling(boolean enforceScrolling, int requiredWidth);
         void updateServerGroups(List<ServerGroupRecord> serverGroups);
-        void updateAssignedDeployments(List<DeploymentRecord> deployments);
-        void updateSubdeployments(List<DeploymentRecord> subdeployments);
+        void updateAssignments(List<DeploymentRecord> deployments);
+        void updateSubdeployments(ServerInstance referenceServer, List<DeploymentRecord> subdeployments);
         void clearActiveSelection(ClearFinderSelectionEvent event);
-    void updateServerDeployment( DeploymentRecord deployment);}
+        void updateDeployment(ServerInstance referenceServer, DeploymentRecord deployment);
+
+        void setReferenceServer(ServerInstance server);
+    }
 
     // @formatter:on ---------------------------------------- instance data
 
@@ -140,10 +142,10 @@ public class DeploymentFinder
 
     @Inject
     public DeploymentFinder(final EventBus eventBus, final MyView view, final MyProxy proxy,
-            final DispatchAsync dispatcher, final PlaceManager placeManager,
-            final Dispatcher circuit,
-            final BeanFactory beanFactory, final Header header, final UnauthorisedPresenter unauthorisedPresenter,
-            final DeploymentStore deploymentStore, ServerGroupStore serverGroupStore) {
+                            final DispatchAsync dispatcher, final PlaceManager placeManager,
+                            final Dispatcher circuit,
+                            final BeanFactory beanFactory, final Header header, final UnauthorisedPresenter unauthorisedPresenter,
+                            final DeploymentStore deploymentStore, ServerGroupStore serverGroupStore) {
         super(eventBus, view, proxy, placeManager, header, NameTokens.DeploymentFinder,
                 unauthorisedPresenter, TYPE_MainContent);
         this.dispatcher = dispatcher;
@@ -173,7 +175,7 @@ public class DeploymentFinder
 
     @Override
     protected void onFirstReveal(final PlaceRequest placeRequest, final PlaceManager placeManager,
-            final boolean revealDefault) {
+                                 final boolean revealDefault) {
         circuit.dispatch(new RefreshServerGroups());
     }
 
@@ -195,20 +197,20 @@ public class DeploymentFinder
     // ------------------------------------------------------ deployment related methods
 
     public void loadAssignmentsFor(final ServerGroupRecord serverGroup) {
-        // TODO Reduce duplicate code
+
         deploymentStore.loadContentRepository(new SimpleCallback<ContentRepository>() {
             @Override
             public void onSuccess(final ContentRepository result) {
                 contentRepository = result;
                 List<DeploymentRecord> deployments = result.getDeployments(serverGroup);
-                getView().updateAssignedDeployments(deployments);
+                getView().updateAssignments(deployments);
             }
         });
     }
 
     @Override
     public void onAssignToServerGroup(final DeploymentRecord deployment, final boolean enable,
-            final Set<ServerGroupSelection> selectedGroups) {
+                                      final Set<ServerGroupSelection> selectedGroups) {
 
         final PopupPanel loading = Feedback.loading(
                 Console.CONSTANTS.common_label_plaseWait(),
@@ -382,7 +384,10 @@ public class DeploymentFinder
         window.center();
     }
 
-    public void loadServerDeployment(final DeploymentRecord deployment) {
+    public void loadServerDeployment(String serverGroup, final DeploymentRecord deployment) {
+
+        getView().setReferenceServer(null);
+
         if (deployment.isEnabled()) {
             Outcome<FunctionContext> outcome = new Outcome<FunctionContext>() {
                 @Override
@@ -398,9 +403,9 @@ public class DeploymentFinder
                         HostInfo host = i.next();
                         List<ServerInstance> serverInstances = host.getServerInstances();
                         for (Iterator<ServerInstance> j = serverInstances.iterator();
-                                j.hasNext() && referenceServer == null; ) {
+                             j.hasNext() && referenceServer == null; ) {
                             ServerInstance server = j.next();
-                            if (server.isRunning() && server.getGroup().equals(deployment.getServerGroup())) {
+                            if (server.isRunning() && server.getGroup().equals(serverGroup)) {
                                 referenceServer = server;
                             }
                         }
@@ -409,8 +414,7 @@ public class DeploymentFinder
                         loadDeployment(deployment, referenceServer);
                         System.out.println("Found reference server " + referenceServer.getName() + " on " + referenceServer.getGroup() + " / " + referenceServer.getHost());
                     } else {
-                        System.out.println("No reference server found!");
-                        // TODO No reference server found
+                        Console.error("No reference server found!");
                     }
                 }
             };
@@ -423,6 +427,10 @@ public class DeploymentFinder
 
     private void loadDeployment(final DeploymentRecord deployment, ServerInstance referenceServer) {
         // TODO Should be replaced with a :read-resource(recursive=true)
+
+
+        getView().setReferenceServer(referenceServer);
+
         deploymentStore.loadDeployments(referenceServer, new AsyncCallback<List<DeploymentRecord>>() {
             @Override
             public void onFailure(final Throwable caught) {
@@ -451,11 +459,11 @@ public class DeploymentFinder
 
                                     @Override
                                     public void onSuccess(final List<DeploymentRecord> result) {
-                                        getView().updateSubdeployments(result);
+                                        getView().updateSubdeployments(referenceServer, result);
                                     }
                                 });
                     } else {
-                        getView().updateServerDeployment(referenceDeployment);
+                        getView().updateDeployment(referenceServer, referenceDeployment);
                     }
                 }
             }
