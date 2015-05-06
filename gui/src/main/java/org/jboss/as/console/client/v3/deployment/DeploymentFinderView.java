@@ -222,14 +222,7 @@ public class DeploymentFinderView extends SuspendableViewImpl
                 }
         );
 
-        deploymentColumn.setTopMenuItems(new MenuDelegate<DeploymentRecord>(
-                "Add", new ContextualCommand<DeploymentRecord>() {
-            @Override
-            public void executeOn(DeploymentRecord item) {
-                  presenter.launchNewDeploymentDialoge(null, false);
-            }
-        }
-        ));
+
 
         //deploymentColumn.setShowSize(true);
 
@@ -250,6 +243,8 @@ public class DeploymentFinderView extends SuspendableViewImpl
                     }
                 });
 
+
+
         // -----
 
         assignmentColumn = new FinderColumn<>(
@@ -258,7 +253,7 @@ public class DeploymentFinderView extends SuspendableViewImpl
                 new FinderColumn.Display<DeploymentRecord>() {
                     @Override
                     public boolean isFolder(final DeploymentRecord data) {
-                        return data.isHasSubdeployments();
+                        return referenceServer!=null;
                     }
 
                     @Override
@@ -268,7 +263,7 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
                     @Override
                     public String rowCss(final DeploymentRecord data) {
-                        return "";
+                        return referenceServer!=null ? "active" : "inactive";
                     }
                 },
                 new ProvidesKey<DeploymentRecord>() {
@@ -279,6 +274,25 @@ public class DeploymentFinderView extends SuspendableViewImpl
                 }
         );
 
+        assignmentColumn.setTopMenuItems(new MenuDelegate<DeploymentRecord>(
+                "Add", new ContextualCommand<DeploymentRecord>() {
+            @Override
+            public void executeOn(DeploymentRecord item) {
+
+            }
+        }
+        ));
+
+        assignmentColumn.setMenuItems(
+                new MenuDelegate<DeploymentRecord>("Disable", new ContextualCommand<DeploymentRecord>() {
+                    @Override
+                    public void executeOn(DeploymentRecord item) {
+
+                    }
+                })
+        );
+
+
         assignmentColumn.addSelectionChangeHandler(new SelectionChangeEvent.Handler() {
             @Override
             public void onSelectionChange(SelectionChangeEvent selectionChangeEvent) {
@@ -287,10 +301,12 @@ public class DeploymentFinderView extends SuspendableViewImpl
                 {
                         columnManager.updateActiveSelection(assignmentColumnWidget);
 
-                        presenter.loadServerDeployment(
-                                serverGroupColumn.getSelectedItem().getName(),
-                                assignmentColumn.getSelectedItem()
+                    if(referenceServer!=null) {
+                        presenter.loadDeployment(
+                                assignmentColumn.getSelectedItem(),
+                                referenceServer
                         );
+                    }
 
                 }
             }

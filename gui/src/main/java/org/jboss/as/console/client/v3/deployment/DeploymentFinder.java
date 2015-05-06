@@ -201,14 +201,39 @@ public class DeploymentFinder
 
     public void loadAssignmentsFor(final ServerGroupRecord serverGroup) {
 
-        deploymentStore.loadContentRepository(new SimpleCallback<ContentRepository>() {
+        // reset
+        getView().setReferenceServer(null);
+
+        loadReference(serverGroup.getName(), new AsyncCallback<ServerInstance>() {
             @Override
-            public void onSuccess(final ContentRepository result) {
-                contentRepository = result;
-                List<DeploymentRecord> deployments = result.getDeployments(serverGroup);
-                getView().updateAssignments(deployments);
+            public void onFailure(Throwable throwable) {
+                Console.error("No reference server found!");
+
+                deploymentStore.loadContentRepository(new SimpleCallback<ContentRepository>() {
+                    @Override
+                    public void onSuccess(final ContentRepository result) {
+                        contentRepository = result;
+                        List<DeploymentRecord> deployments = result.getDeployments(serverGroup);
+                        getView().updateAssignments(deployments);
+                    }
+                });
+            }
+
+            @Override
+            public void onSuccess(final ServerInstance serverInstance) {
+
+                deploymentStore.loadContentRepository(new SimpleCallback<ContentRepository>() {
+                    @Override
+                    public void onSuccess(final ContentRepository result) {
+                        contentRepository = result;
+                        getView().setReferenceServer(serverInstance);
+                        List<DeploymentRecord> deployments = result.getDeployments(serverGroup);
+                        getView().updateAssignments(deployments);
+                    }
+                });
             }
         });
+
     }
 
     @Override
@@ -387,53 +412,52 @@ public class DeploymentFinder
         window.center();
     }
 
-    public void loadServerDeployment(String serverGroup, final DeploymentRecord deployment) {
+    public void loadReference(String serverGroup, AsyncCallback<ServerInstance> callback) {
 
         getView().setReferenceServer(null);
 
-        if (deployment.isEnabled()) {
-            Outcome<FunctionContext> outcome = new Outcome<FunctionContext>() {
-                @Override
-                public void onFailure(final FunctionContext context) {
-                    Console.error("Unable to load deployment content", context.getErrorMessage()); // TODO i18n
-                }
 
-                @Override
-                public void onSuccess(final FunctionContext context) {
-                    ServerInstance referenceServer = null;
-                    List<HostInfo> hosts = context.pop();
-                    for (Iterator<HostInfo> i = hosts.iterator(); i.hasNext() && referenceServer == null; ) {
-                        HostInfo host = i.next();
-                        List<ServerInstance> serverInstances = host.getServerInstances();
-                        for (Iterator<ServerInstance> j = serverInstances.iterator();
-                             j.hasNext() && referenceServer == null; ) {
-                            ServerInstance server = j.next();
-                            if (server.isRunning() && server.getGroup().equals(serverGroup)) {
-                                referenceServer = server;
-                            }
+        Outcome<FunctionContext> outcome = new Outcome<FunctionContext>() {
+            @Override
+            public void onFailure(final FunctionContext context) {
+                Console.error("Unable to load deployment content", context.getErrorMessage()); // TODO i18n
+            }
+
+            @Override
+            public void onSuccess(final FunctionContext context) {
+                ServerInstance referenceServer = null;
+                List<HostInfo> hosts = context.pop();
+                for (Iterator<HostInfo> i = hosts.iterator(); i.hasNext() && referenceServer == null; ) {
+                    HostInfo host = i.next();
+                    List<ServerInstance> serverInstances = host.getServerInstances();
+                    for (Iterator<ServerInstance> j = serverInstances.iterator();
+                         j.hasNext() && referenceServer == null; ) {
+                        ServerInstance server = j.next();
+                        if (server.isRunning() && server.getGroup().equals(serverGroup)) {
+                            referenceServer = server;
                         }
                     }
-                    if (referenceServer != null) {
-                        loadDeployment(deployment, referenceServer);
-                        System.out.println("Found reference server " + referenceServer.getName() + " on " + referenceServer.getGroup() + " / " + referenceServer.getHost());
-                    } else {
-                        Console.error("No reference server found!");
-                        getView().noServerFound();
-                    }
                 }
-            };
-            new Async<FunctionContext>().waterfall(new FunctionContext(), outcome,
-                    new TopologyFunctions.HostsAndGroups(dispatcher),
-                    new TopologyFunctions.ServerConfigs(dispatcher, beanFactory),
-                    new TopologyFunctions.RunningServerInstances(dispatcher));
-        }
+                if (referenceServer != null) {
+
+                    System.out.println("Found reference server " + referenceServer.getName() + " on " + referenceServer.getGroup() + " / " + referenceServer.getHost());
+                    callback.onSuccess(referenceServer);
+
+                } else {
+                    callback.onFailure(new Throwable("no server found"));
+                    //getView().noServerFound();
+                }
+            }
+        };
+        new Async<FunctionContext>().waterfall(new FunctionContext(), outcome,
+                new TopologyFunctions.HostsAndGroups(dispatcher),
+                new TopologyFunctions.ServerConfigs(dispatcher, beanFactory),
+                new TopologyFunctions.RunningServerInstances(dispatcher));
+
     }
 
-    private void loadDeployment(final DeploymentRecord deployment, ServerInstance referenceServer) {
+    public void loadDeployment(final DeploymentRecord deployment, ServerInstance referenceServer) {
         // TODO Should be replaced with a :read-resource(recursive=true)
-
-
-        getView().setReferenceServer(referenceServer);
 
         deploymentStore.loadDeployments(referenceServer, new AsyncCallback<List<DeploymentRecord>>() {
             @Override
@@ -508,20 +532,20 @@ public class DeploymentFinder
     }
 
     public void loadSubdeployments(ServerInstance referenceServer, DeploymentRecord deployment) {
-           if (deployment.isHasSubdeployments()) {
-                        deploymentStore.loadSubdeployments(deployment,
-                                new AsyncCallback<List<DeploymentRecord>>() {
-                                    @Override
-                                    public void onFailure(final Throwable caught) {
-                                        Console.error("Unable to load deployment content",
-                                                caught.getMessage()); // TODO i18n
-                                    }
+        if (deployment.isHasSubdeployments()) {
+            deploymentStore.loadSubdeployments(deployment,
+                    new AsyncCallback<List<DeploymentRecord>>() {
+                        @Override
+                        public void onFailure(final Throwable caught) {
+                            Console.error("Unable to load deployment content",
+                                    caught.getMessage()); // TODO i18n
+                        }
 
-                                    @Override
-                                    public void onSuccess(final List<DeploymentRecord> result) {
-                                        getView().updateSubdeployments(referenceServer, result);
-                                    }
-                                });
-                    }
+                        @Override
+                        public void onSuccess(final List<DeploymentRecord> result) {
+                            getView().updateSubdeployments(referenceServer, result);
+                        }
+                    });
+        }
     }
 }
