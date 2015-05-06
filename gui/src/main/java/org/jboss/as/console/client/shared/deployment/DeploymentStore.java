@@ -194,7 +194,7 @@ public class DeploymentStore
                         String groupName = node.get(ADDRESS).asList().get(0).get("server-group").asString();
                         String deploymentName = node.get(ADDRESS).asList().get(1).get("deployment").asString();
                         DeploymentRecord dr = contentRepository.getDeployment(deploymentName);
-                        dr.setServerGroup(groupName);
+                        contentRepository.assignDeploymentToServerGroup(deploymentName, groupName);
                         // The state of the deployment (enabled/disabled) is taken from this step!
                         dr.setEnabled(node.get(RESULT).get("enabled").asBoolean());
                         dr.setAddress(addressFor("server-group", groupName, "deployment", deploymentName));
