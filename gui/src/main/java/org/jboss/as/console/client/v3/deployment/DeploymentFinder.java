@@ -97,6 +97,7 @@ public class DeploymentFinder
         extends PerspectivePresenter<DeploymentFinder.MyView, DeploymentFinder.MyProxy>
         implements DeployCommandExecutor, Finder, PreviewEvent.Handler, FinderScrollEvent.Handler, ClearFinderSelectionEvent.Handler {
 
+
     // @formatter:off --------------------------------------- proxy & view
 
     @ProxyCodeSplit
@@ -121,6 +122,8 @@ public class DeploymentFinder
         void updateDeployment(ServerInstance referenceServer, DeploymentRecord deployment);
 
         void setReferenceServer(ServerInstance server);
+
+        void noServerFound();
     }
 
     // @formatter:on ---------------------------------------- instance data
@@ -415,6 +418,7 @@ public class DeploymentFinder
                         System.out.println("Found reference server " + referenceServer.getName() + " on " + referenceServer.getGroup() + " / " + referenceServer.getHost());
                     } else {
                         Console.error("No reference server found!");
+                        getView().noServerFound();
                     }
                 }
             };
@@ -448,7 +452,10 @@ public class DeploymentFinder
                 }
                 if (referenceDeployment != null) {
                     //                    getView().toggleSubdeployments(referenceDeployment.isHasSubdeployments());
-                    if (referenceDeployment.isHasSubdeployments()) {
+
+                    getView().updateDeployment(referenceServer, referenceDeployment);
+
+                   /* if (referenceDeployment.isHasSubdeployments()) {
                         deploymentStore.loadSubdeployments(referenceDeployment,
                                 new AsyncCallback<List<DeploymentRecord>>() {
                                     @Override
@@ -462,9 +469,8 @@ public class DeploymentFinder
                                         getView().updateSubdeployments(referenceServer, result);
                                     }
                                 });
-                    } else {
-                        getView().updateDeployment(referenceServer, referenceDeployment);
                     }
+                    */
                 }
             }
         });
@@ -499,5 +505,23 @@ public class DeploymentFinder
     @Override
     public void onClearActiveSelection(final ClearFinderSelectionEvent event) {
         getView().clearActiveSelection(event);
+    }
+
+    public void loadSubdeployments(ServerInstance referenceServer, DeploymentRecord deployment) {
+           if (deployment.isHasSubdeployments()) {
+                        deploymentStore.loadSubdeployments(deployment,
+                                new AsyncCallback<List<DeploymentRecord>>() {
+                                    @Override
+                                    public void onFailure(final Throwable caught) {
+                                        Console.error("Unable to load deployment content",
+                                                caught.getMessage()); // TODO i18n
+                                    }
+
+                                    @Override
+                                    public void onSuccess(final List<DeploymentRecord> result) {
+                                        getView().updateSubdeployments(referenceServer, result);
+                                    }
+                                });
+                    }
     }
 }
