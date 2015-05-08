@@ -23,32 +23,31 @@ package org.jboss.as.console.client.v3.deployment;
 
 import org.jboss.dmr.client.ModelNode;
 
-import java.util.SortedSet;
-import java.util.TreeSet;
+import static org.jboss.dmr.client.ModelDescriptionConstants.NAME;
 
 /**
+ * An uploaded deployment blob w/o any relation to servers or server groups.
+ *
  * @author Harald Pehl
  */
-public class AssignedDeployment extends UploadedDeployment {
+public class Content extends ModelNode {
 
-    private final SortedSet<String> serverGroups;
-
-    public AssignedDeployment(final ModelNode node) {
-        super(node);
-        serverGroups = new TreeSet<>();
+    public Content(final ModelNode node) {
+        set(node);
     }
 
-    public boolean isEnabled() {
-        ModelNode enabled = get("enabled");
-        //noinspection SimplifiableConditionalExpression
-        return enabled.isDefined() ? enabled.asBoolean() : false;
+    public String getName() {
+        ModelNode name = get(NAME);
+        return name.isDefined() ? name.asString() : null;
     }
 
-    public void addServerGroup(String serverGroup) {
-        serverGroups.add(serverGroup);
+    public String getRuntimeName() {
+        ModelNode runtimeName = get("runtime-name");
+        return runtimeName.isDefined() ? runtimeName.asString() : null;
     }
 
-    public SortedSet<String> getServerGroups() {
-        return serverGroups;
+    @Override
+    public String toString() {
+        return "Content {" + getName() + "}";
     }
 }

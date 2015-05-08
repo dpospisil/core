@@ -21,26 +21,10 @@
  */
 package org.jboss.as.console.client.v3.deployment;
 
-import org.jboss.dmr.client.ModelNode;
-
-import static org.jboss.dmr.client.ModelDescriptionConstants.NAME;
+import org.jboss.gwt.circuit.Action;
 
 /**
  * @author Harald Pehl
  */
-public class UploadedDeployment extends ModelNode {
-
-    public UploadedDeployment(final ModelNode node) {
-        set(node);
-    }
-
-    public String getName() {
-        ModelNode name = get(NAME);
-        return name.isDefined() ? name.asString() : null;
-    }
-
-    public String getRuntimeName() {
-        ModelNode runtimeName = get("runtime-name");
-        return runtimeName.isDefined() ? runtimeName.asString() : null;
-    }
+public class LoadRepository implements Action {
 }

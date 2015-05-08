@@ -21,40 +21,18 @@
  */
 package org.jboss.as.console.client.v3.deployment;
 
-import org.jboss.as.console.client.shared.deployment.model.DeploymentRecord;
 import org.jboss.gwt.circuit.Action;
 
 /**
  * @author Harald Pehl
  */
-public class DeploymentSelection implements Action {
+public class LoadDeployments implements Action {
 
-    private final DeploymentRecord deployment;
+    private final ReferenceServer referenceServer;
 
-    public DeploymentSelection(final DeploymentRecord deployment) {this.deployment = deployment;}
+    public LoadDeployments(final ReferenceServer referenceServer) {this.referenceServer = referenceServer;}
 
-    @Override
-    public boolean equals(final Object o) {
-        if (this == o) { return true; }
-        if (!(o instanceof DeploymentSelection)) { return false; }
-
-        DeploymentSelection that = (DeploymentSelection) o;
-
-        return deployment.equals(that.deployment);
-
-    }
-
-    @Override
-    public int hashCode() {
-        return deployment.hashCode();
-    }
-
-    @Override
-    public String toString() {
-        return "DeploymentSelection{" + deployment.getName() + "}";
-    }
-
-    public DeploymentRecord getDeployment() {
-        return deployment;
+    public ReferenceServer getReferenceServer() {
+        return referenceServer;
     }
 }

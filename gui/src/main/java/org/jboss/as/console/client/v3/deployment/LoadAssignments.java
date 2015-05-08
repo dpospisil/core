@@ -19,28 +19,20 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.jboss.as.console.client.v3.dmr;
+package org.jboss.as.console.client.v3.deployment;
 
-import org.jboss.dmr.client.ModelNode;
+import org.jboss.gwt.circuit.Action;
 
 /**
- * Represents a fully qualified DMR address ready to be put into a DMR operation.
  * @author Harald Pehl
  */
-public class ResourceAddress extends ModelNode {
+public class LoadAssignments implements Action {
 
-    public static final ResourceAddress ROOT = new ResourceAddress();
+    private final String serverGroup;
 
-    public ResourceAddress() {
-        super();
-    }
+    public LoadAssignments(final String serverGroup) {this.serverGroup = serverGroup;}
 
-    public ResourceAddress(ModelNode address) {
-        set(address);
-    }
-
-    public ResourceAddress add(final String propertyName, final String propertyValue) {
-        add().set(propertyName, propertyValue);
-        return this;
+    public String getServerGroup() {
+        return serverGroup;
     }
 }
