@@ -31,19 +31,59 @@ import org.jboss.dmr.client.ModelNode;
 public class Deployment extends Content {
 
     enum Status {
-        OK, FAILED, STOPPED, UNDEFINED;
+        OK, FAILED, STOPPED, UNDEFINED
     }
 
 
     private final ReferenceServer referenceServer;
+    private final ModelNode node;
 
     public Deployment(final ReferenceServer referenceServer, final ModelNode node) {
         super(node);
         this.referenceServer = referenceServer;
+        this.node = node;
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (this == o) { return true; }
+        if (!(o instanceof Deployment)) { return false; }
+        if (!super.equals(o)) { return false; }
+
+        Deployment that = (Deployment) o;
+        //noinspection SimplifiableIfStatement
+        if (!referenceServer.equals(that.referenceServer)) { return false; }
+        return node.equals(that.node);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + referenceServer.hashCode();
+        result = 31 * result + node.hashCode();
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("Deployment {").append(getName());
+        if (!isStandalone()) {
+            builder.append("@").append(referenceServer.getHost()).append("/").append(referenceServer.getServer());
+        }
+        builder.append(", ")
+                .append((isEnabled() ? "enabled" : "disabled"))
+                .append(getStatus());
+        builder.append("}");
+        return builder.toString();
     }
 
     public boolean isStandalone() {
         return referenceServer == ReferenceServer.STANDALONE;
+    }
+
+    public ReferenceServer getReferenceServer() {
+        return referenceServer;
     }
 
     public boolean isEnabled() {
@@ -65,17 +105,7 @@ public class Deployment extends Content {
         return status;
     }
 
-    @Override
-    public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("Deployment {").append(getName());
-        if (!isStandalone()) {
-            builder.append("@").append(referenceServer.getHost()).append("/").append(referenceServer.getServer());
-        }
-        builder.append(", ")
-                .append((isEnabled() ? "enabled" : "disabled"))
-                .append(getStatus());
-        builder.append("}");
-        return builder.toString();
+    public boolean hasSubDeployments() {
+        return false; // TODO
     }
 }

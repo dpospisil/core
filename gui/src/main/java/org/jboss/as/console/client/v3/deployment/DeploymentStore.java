@@ -21,10 +21,13 @@
  */
 package org.jboss.as.console.client.v3.deployment;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Multimap;
 import com.google.gwt.user.client.rpc.AsyncCallback;
-import org.jboss.as.console.client.core.BootstrapContext;
+import com.google.inject.Inject;
+import org.jboss.as.console.client.domain.model.ServerInstance;
+import org.jboss.as.console.client.domain.topology.HostInfo;
+import org.jboss.as.console.client.domain.topology.TopologyFunctions;
+import org.jboss.as.console.client.shared.BeanFactory;
+import org.jboss.as.console.client.shared.flow.FunctionContext;
 import org.jboss.as.console.client.v3.dmr.Operation;
 import org.jboss.as.console.client.v3.dmr.ResourceAddress;
 import org.jboss.dmr.client.ModelNode;
@@ -36,13 +39,20 @@ import org.jboss.gwt.circuit.ChangeSupport;
 import org.jboss.gwt.circuit.Dispatcher;
 import org.jboss.gwt.circuit.meta.Process;
 import org.jboss.gwt.circuit.meta.Store;
+import org.jboss.gwt.flow.client.Async;
+import org.jboss.gwt.flow.client.Outcome;
 
-import javax.inject.Inject;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import static org.jboss.dmr.client.ModelDescriptionConstants.INCLUDE_RUNTIME;
 import static org.jboss.dmr.client.ModelDescriptionConstants.READ_CHILDREN_RESOURCES_OPERATION;
+import static org.jboss.dmr.client.ModelDescriptionConstants.RECURSIVE;
 
 /**
  * Circuit store for deployments.
@@ -51,8 +61,8 @@ import static org.jboss.dmr.client.ModelDescriptionConstants.READ_CHILDREN_RESOU
  * the state is valid throughout the complete lifecycle of the management console. Other management clients can upload,
  * assign and (un)deploy applications at any time w/o this store is aware of.
  * <p>
- * This might change one we have server side notifications. But in the meantime you should use the {@link Reset} action
- * to reset the store's state before loading fresh state.
+ * This might change one we have server side notifications. But in the meantime you should use the
+ * {@link ResetDeploymentStore} action to reset the store's state before loading fresh state.
  *
  * @author Harald Pehl
  */
@@ -60,25 +70,26 @@ import static org.jboss.dmr.client.ModelDescriptionConstants.READ_CHILDREN_RESOU
 public class DeploymentStore extends ChangeSupport {
 
     private final DispatchAsync dispatcher;
-    private final BootstrapContext bootstrapContext;
+    private final BeanFactory beanFactory;
 
     private final List<Content> repository;
-    private final Multimap<String, Assignment> assignments;
-    private final Multimap<ReferenceServer, Deployment> deployments;
+    private final Set<Assignment> assignments; // for server group specified in LoadAssignments
+    private final Set<Deployment> deployments; // for reference server specified in LoadDeployments
+    private final Map<String, ReferenceServer> referenceServers; // key == server group
 
     @Inject
-    public DeploymentStore(final DispatchAsync dispatcher,
-            final BootstrapContext bootstrapContext) {
+    public DeploymentStore(final DispatchAsync dispatcher, final BeanFactory beanFactory) {
         this.dispatcher = dispatcher;
-        this.bootstrapContext = bootstrapContext;
+        this.beanFactory = beanFactory;
 
         this.repository = new ArrayList<>();
-        this.assignments = ArrayListMultimap.create();
-        this.deployments = ArrayListMultimap.create();
+        this.assignments = new HashSet<>();
+        this.deployments = new HashSet<>();
+        this.referenceServers = new HashMap<>();
     }
 
-    @Process(actionType = Reset.class)
-    public void reset(Dispatcher.Channel channel) {
+    @Process(actionType = ResetDeploymentStore.class)
+    public void reset(final Dispatcher.Channel channel) {
         repository.clear();
         assignments.clear();
         deployments.clear();
@@ -86,7 +97,7 @@ public class DeploymentStore extends ChangeSupport {
     }
 
     @Process(actionType = LoadRepository.class)
-    public void loadRepository(Dispatcher.Channel channel) {
+    public void loadRepository(final Dispatcher.Channel channel) {
         Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, ResourceAddress.ROOT).build();
 
         dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
@@ -112,7 +123,7 @@ public class DeploymentStore extends ChangeSupport {
     }
 
     @Process(actionType = LoadAssignments.class)
-    public void loadAssignments(LoadAssignments action, Dispatcher.Channel channel) {
+    public void loadAssignments(final LoadAssignments action, final Dispatcher.Channel channel) {
         final String serverGroup = action.getServerGroup();
         ResourceAddress address = new ResourceAddress().add("server-group", serverGroup);
         Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address).build();
@@ -132,19 +143,56 @@ public class DeploymentStore extends ChangeSupport {
                     assignments.clear();
                     List<Property> properties = result.asPropertyList();
                     for (Property property : properties) {
-                        assignments.put(serverGroup, new Assignment(serverGroup, property.getValue()));
+                        assignments.add(new Assignment(serverGroup, property.getValue()));
                     }
-                    channel.ack();
+                    findReferenceServer(serverGroup, channel);
                 }
             }
         });
     }
 
+    private void findReferenceServer(final String serverGroup, final Dispatcher.Channel channel) {
+        Outcome<FunctionContext> outcome = new Outcome<FunctionContext>() {
+            @Override
+            public void onFailure(final FunctionContext context) {
+                channel.nack(context.getError());
+            }
+
+            @Override
+            public void onSuccess(final FunctionContext context) {
+                referenceServers.remove(serverGroup);
+                ReferenceServer referenceServer = null;
+                List<HostInfo> hosts = context.pop();
+                for (Iterator<HostInfo> i = hosts.iterator(); i.hasNext() && referenceServer == null; ) {
+                    HostInfo host = i.next();
+                    List<ServerInstance> serverInstances = host.getServerInstances();
+                    for (Iterator<ServerInstance> j = serverInstances.iterator();
+                            j.hasNext() && referenceServer == null; ) {
+                        ServerInstance server = j.next();
+                        if (server.isRunning() && server.getGroup().equals(serverGroup)) {
+                            referenceServer = new ReferenceServer(server.getHost(), server.getName());
+                        }
+                    }
+                }
+                if (referenceServer != null) {
+                    referenceServers.put(serverGroup, referenceServer);
+                }
+                channel.ack();
+            }
+        };
+        new Async<FunctionContext>().waterfall(new FunctionContext(), outcome,
+                new TopologyFunctions.HostsAndGroups(dispatcher),
+                new TopologyFunctions.ServerConfigs(dispatcher, beanFactory),
+                new TopologyFunctions.RunningServerInstances(dispatcher));
+    }
+
     @Process(actionType = LoadDeployments.class)
-    public void loadDeployments(LoadDeployments action, Dispatcher.Channel channel) {
-        final ReferenceServer referenceServer = action.getReferenceServer();
-        ResourceAddress address = referenceServer.getAddress();
-        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address).build();
+    public void loadDeployments(final LoadDeployments action, final Dispatcher.Channel channel) {
+        ResourceAddress address = action.getReferenceServer().getAddress();
+        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address)
+                .param(INCLUDE_RUNTIME, true)
+                .param(RECURSIVE, true)
+                .build();
 
         dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
             @Override
@@ -161,7 +209,7 @@ public class DeploymentStore extends ChangeSupport {
                     deployments.clear();
                     List<Property> properties = result.asPropertyList();
                     for (Property property : properties) {
-                        deployments.put(referenceServer, new Deployment(referenceServer, property.getValue()));
+                        deployments.add(new Deployment(action.getReferenceServer(), property.getValue()));
                     }
                     channel.ack();
                 }
@@ -170,26 +218,34 @@ public class DeploymentStore extends ChangeSupport {
     }
 
 
-    private boolean isStandalone() {
-        return bootstrapContext.isStandalone();
-    }
-
-    private boolean isDomain() {
-        return !bootstrapContext.isStandalone();
-    }
-
-
     // ------------------------------------------------------ state access
 
+    /**
+     * @return the uploaded deployment content
+     */
     public List<Content> getRepository() {
         return repository;
     }
 
-    public Collection<Assignment> getAssignments(String serverGroup) {
-        return assignments.get(serverGroup);
+    /**
+     * @return the running reference server for the specified server group or {@code null} if no reference server is
+     * available for that server group
+     */
+    public ReferenceServer getReferenceServer(String serverGroup) {
+        return referenceServers.get(serverGroup);
     }
 
-    public Collection<Deployment> getDeployments(ReferenceServer referenceServer) {
-        return deployments.get(referenceServer);
+    /**
+     * @return the assignments for the server group specified in the related {@link LoadAssignments} action
+     */
+    public Set<Assignment> getAssignments() {
+        return assignments;
+    }
+
+    /**
+     * @return the deployments for the reference server specified in the related {@link LoadDeployments} action
+     */
+    public Set<Deployment> getDeployments() {
+        return deployments;
     }
 }

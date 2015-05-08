@@ -21,13 +21,14 @@
  */
 package org.jboss.as.console.client.v3.dmr;
 
-import org.jboss.hal.dmr.ModelNode;
+import org.jboss.dmr.client.ModelNode;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import static org.jboss.hal.dmr.ModelDescriptionConstants.*;
+import static org.jboss.dmr.client.ModelDescriptionConstants.COMPOSITE;
+import static org.jboss.dmr.client.ModelDescriptionConstants.STEPS;
 
 /**
  * @author Harald Pehl

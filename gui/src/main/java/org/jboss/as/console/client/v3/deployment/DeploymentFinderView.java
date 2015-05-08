@@ -21,6 +21,7 @@
  */
 package org.jboss.as.console.client.v3.deployment;
 
+import com.google.common.collect.Lists;
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.safehtml.client.SafeHtmlTemplates;
@@ -31,21 +32,16 @@ import com.google.gwt.user.client.ui.LayoutPanel;
 import com.google.gwt.user.client.ui.SplitLayoutPanel;
 import com.google.gwt.user.client.ui.Widget;
 import com.google.gwt.view.client.ProvidesKey;
-import com.google.gwt.view.client.SelectionChangeEvent;
 import com.google.inject.Inject;
+import org.jboss.as.console.client.Console;
 import org.jboss.as.console.client.core.SuspendableViewImpl;
 import org.jboss.as.console.client.domain.model.ServerGroupRecord;
-import org.jboss.as.console.client.domain.model.ServerInstance;
-import org.jboss.as.console.client.shared.deployment.model.DeploymentRecord;
 import org.jboss.as.console.client.shared.util.Trim;
 import org.jboss.as.console.client.widgets.nav.v3.ClearFinderSelectionEvent;
 import org.jboss.as.console.client.widgets.nav.v3.ColumnManager;
-import org.jboss.as.console.client.widgets.nav.v3.ContextualCommand;
 import org.jboss.as.console.client.widgets.nav.v3.FinderColumn;
 import org.jboss.as.console.client.widgets.nav.v3.MenuDelegate;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.jboss.gwt.circuit.Dispatcher;
 
 /**
  * @author Harald Pehl
@@ -53,19 +49,19 @@ import java.util.List;
 public class DeploymentFinderView extends SuspendableViewImpl
         implements DeploymentFinder.MyView {
 
-    private ServerInstance referenceServer;
-
     interface Template extends SafeHtmlTemplates {
 
-        @Template("<div class=\"{0}\" title='{2}'>{1}</div>")
-        SafeHtml item(String cssClass, String shortName, String fullName);
+        @Template("<div class=\"{0}\">{1}</div>")
+        SafeHtml item(String cssClass, String name);
 
-       /* @Template("<div class='preview-content'><h2>{0}</h2>" +
-                "<ul>" +
-                "<li>Runtime Name: {1}</li>" +
-                "</ul>" +
-                "</div>")
-        SafeHtml content(String name, String runtimeName);
+        @Template("<div class=\"{0}\" title=\"{1}\">{2}</div>")
+        SafeHtml trimmedItem(String cssClass, String trimmed, String full);
+
+        @Template("<div class=\"{0}\" title=\"{1}\">{2}<br/><span styles=\"font-size:10px;font-weight:italic\">{3} / {4}</span></div>")
+        SafeHtml deploymentItem(String cssClass, String trimmed, String full, String host, String server);
+
+        @Template("<div class=\"{0}\" title=\"{1}\">{2}</div>")
+        SafeHtml subDeploymentItem(String cssClass, String trimmed, String full);
 
         @Template("<div class='preview-content'><h2>{0}</h2>" +
                 "<ul>" +
@@ -73,17 +69,29 @@ public class DeploymentFinderView extends SuspendableViewImpl
                 "<li>Enabled: {2}</li>" +
                 "</ul>" +
                 "</div>")
-        SafeHtml assignment(String name, String runtimeName, boolean enabled);*/
+        SafeHtml assignmentPreview(String name, String runtimeName, boolean enabled);
 
-        @Template("<div class=\"{0}\" title='{1}'>{1}<br/><span styles='font-size:10px;font-weight:italic'>{2}/{3}</span></div>")
-        SafeHtml deployment(String name, String runtimeName, String host, String server);
+        @Template("<div class='preview-content'><h2>{0}</h2>" +
+                "<ul>" +
+                "<li>Runtime Name: {1}</li>" +
+                "<li>Enabled: {2}</li>" +
+                "<li>Host: {3}</li>" +
+                "<li>Server: {4}</li>" +
+                "</ul>" +
+                "</div>")
+        SafeHtml deploymentPreview(String name, String runtimeName, String host, String server);
+
+        @Template("<div class='preview-content'><h2>{0}</h2>" +
+                "<ul>" +
+                "<li>Runtime Name: {1}</li>" +
+                "<li>Enabled: {2}</li>" +
+                "</ul>" +
+                "</div>")
+        SafeHtml subDeploymentPreview(String name, String runtimeName);
     }
 
 
     private static final Template TEMPLATE = GWT.create(Template.class);
-
-    private DeploymentFinder presenter;
-    private boolean hasSubdeployments;
 
     private SplitLayoutPanel layout;
     private LayoutPanel contentCanvas;
@@ -91,22 +99,20 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
     private FinderColumn<ServerGroupRecord> serverGroupColumn;
     private Widget serverGroupColumnWidget;
-    private FinderColumn<DeploymentRecord> deploymentColumn;
-    private Widget deploymentColumnWidget;
-    private FinderColumn<DeploymentRecord> subdeploymentColumn;
-    private Widget subdeploymentColumnWidget;
-
-    private FinderColumn<DeploymentRecord> assignmentColumn;
+    private FinderColumn<Assignment> assignmentColumn;
     private Widget assignmentColumnWidget;
-
+    private FinderColumn<Deployment> deploymentColumn;
+    private Widget deploymentColumnWidget;
+    private FinderColumn<Deployment> subdeploymentColumn;
+    private Widget subdeploymentColumnWidget;
 
     @Inject
     @SuppressWarnings("unchecked")
-    public DeploymentFinderView() {
+    public DeploymentFinderView(Dispatcher circuit, final DeploymentStore deploymentStore) {
 
         // ------------------------------------------------------ server group
 
-        serverGroupColumn = new FinderColumn<ServerGroupRecord>(
+        serverGroupColumn = new FinderColumn<>(
                 FinderColumn.FinderId.DEPLOYMENT,
                 "Server Group",
                 new FinderColumn.Display<ServerGroupRecord>() {
@@ -118,7 +124,7 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
                     @Override
                     public SafeHtml render(String baseCss, ServerGroupRecord data) {
-                        return TEMPLATE.item(baseCss, Trim.abbreviateMiddle(data.getName(), 20), data.getName());
+                        return TEMPLATE.item(baseCss, data.getName());
                     }
 
                     @Override
@@ -135,42 +141,146 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
         serverGroupColumn.setShowSize(true);
 
-        serverGroupColumn.addSelectionChangeHandler(new SelectionChangeEvent.Handler() {
-            @Override
-            public void onSelectionChange(final SelectionChangeEvent event) {
-                columnManager.reduceColumnsTo(1);
-                if (serverGroupColumn.hasSelectedItem()) {
-                    columnManager.updateActiveSelection(serverGroupColumnWidget);
-                    columnManager.appendColumn(assignmentColumnWidget);
-                    presenter.loadAssignmentsFor(serverGroupColumn.getSelectedItem());
+        serverGroupColumn.addSelectionChangeHandler(event -> {
+            columnManager.reduceColumnsTo(1);
+            if (serverGroupColumn.hasSelectedItem()) {
+                columnManager.updateActiveSelection(serverGroupColumnWidget);
+                columnManager.appendColumn(assignmentColumnWidget);
+                circuit.dispatch(new LoadAssignments(serverGroupColumn.getSelectedItem().getName()));
+            }
+        });
+
+
+        // ------------------------------------------------------ assignments
+
+        assignmentColumn = new FinderColumn<>(
+                FinderColumn.FinderId.DEPLOYMENT,
+                "Assignment",
+                new FinderColumn.Display<Assignment>() {
+                    @Override
+                    public boolean isFolder(final Assignment data) {
+                        return hasReferenceServer(data);
+                    }
+
+                    @Override
+                    public SafeHtml render(final String baseCss, final Assignment data) {
+                        return TEMPLATE.trimmedItem(baseCss, Trim.abbreviateMiddle(data.getName(), 20), data.getName());
+                    }
+
+                    @Override
+                    public String rowCss(final Assignment data) {
+                        return hasReferenceServer(data) ? "active" : "inactive";
+                    }
+
+                    private boolean hasReferenceServer(final Assignment data) {
+                        return deploymentStore.getReferenceServer(data.getServerGroup()) != null;
+                    }
+
+                },
+                new ProvidesKey<Assignment>() {
+                    @Override
+                    public Object getKey(final Assignment item) {
+                        return item.getName();
+                    }
+                }
+        );
+
+        assignmentColumn.setTopMenuItems(new MenuDelegate<>("Add", item -> Console.warning("Not yet implemented")));
+
+        assignmentColumn.setMenuItems(new MenuDelegate<>("Disable", item -> Console.warning("Not yet implemented")));
+
+        assignmentColumn.setPreviewFactory((data, callback) ->
+                callback.onSuccess(
+                        TEMPLATE.assignmentPreview(data.getName(), data.getRuntimeName(), data.isEnabled())));
+
+        assignmentColumn.addSelectionChangeHandler(selectionChangeEvent -> {
+            columnManager.reduceColumnsTo(2);
+            if (assignmentColumn.hasSelectedItem()) {
+                columnManager.updateActiveSelection(assignmentColumnWidget);
+                Assignment assignment = assignmentColumn.getSelectedItem();
+                ReferenceServer referenceServer = deploymentStore.getReferenceServer(assignment.getServerGroup());
+                if (referenceServer != null) {
+                    circuit.dispatch(new LoadDeployments(referenceServer));
                 }
             }
         });
+
+
+        // ------------------------------------------------------ deployments
+
+        deploymentColumn = new FinderColumn<>(
+                FinderColumn.FinderId.DEPLOYMENT,
+                "Deployment",
+                new FinderColumn.Display<Deployment>() {
+                    @Override
+                    public boolean isFolder(final Deployment data) {
+                        return data.hasSubDeployments();
+                    }
+
+                    @Override
+                    public SafeHtml render(final String baseCss, final Deployment data) {
+                        return TEMPLATE.deploymentItem(baseCss,
+                                Trim.abbreviateMiddle(data.getName(), 20), data.getName(),
+                                data.getReferenceServer().getHost(), data.getReferenceServer().getServer());
+                    }
+
+                    @Override
+                    public String rowCss(final Deployment data) {
+                        return "";
+                    }
+                },
+                new ProvidesKey<Deployment>() {
+                    @Override
+                    public Object getKey(final Deployment item) {
+                        return item.getName();
+                    }
+                }
+        );
+
+        deploymentColumn.setShowSize(true);
+
+        deploymentColumn.setPreviewFactory((data, callback) ->
+                callback.onSuccess(TEMPLATE.deploymentPreview(data.getName(), data.getRuntimeName(),
+                        data.getReferenceServer().getHost(), data.getReferenceServer().getServer())));
+
+        deploymentColumn.addSelectionChangeHandler(event -> {
+            columnManager.reduceColumnsTo(3);
+            if (deploymentColumn.hasSelectedItem()) {
+                columnManager.updateActiveSelection(deploymentColumnWidget);
+                Deployment deployment = deploymentColumn.getSelectedItem();
+                if (deployment.hasSubDeployments()) {
+                    columnManager.appendColumn(subdeploymentColumnWidget);
+                    // TODO update sub deployments
+                }
+            }
+        });
+
 
         // ------------------------------------------------------ sub deployments
 
         subdeploymentColumn = new FinderColumn<>(
                 FinderColumn.FinderId.DEPLOYMENT,
                 "Subdeployment",
-                new FinderColumn.Display<DeploymentRecord>() {
+                new FinderColumn.Display<Deployment>() {
                     @Override
-                    public boolean isFolder(final DeploymentRecord data) {
+                    public boolean isFolder(final Deployment data) {
                         return false;
                     }
 
                     @Override
-                    public SafeHtml render(final String baseCss, final DeploymentRecord data) {
-                        return TEMPLATE.item(baseCss, Trim.abbreviateMiddle(data.getName(), 20), data.getName());
+                    public SafeHtml render(final String baseCss, final Deployment data) {
+                        return TEMPLATE.subDeploymentItem(baseCss,
+                                Trim.abbreviateMiddle(data.getName(), 20), data.getName());
                     }
 
                     @Override
-                    public String rowCss(final DeploymentRecord data) {
+                    public String rowCss(final Deployment data) {
                         return "";
                     }
                 },
-                new ProvidesKey<DeploymentRecord>() {
+                new ProvidesKey<Deployment>() {
                     @Override
-                    public Object getKey(final DeploymentRecord item) {
+                    public Object getKey(final Deployment item) {
                         return item.getName();
                     }
                 }
@@ -178,146 +288,22 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
         subdeploymentColumn.setShowSize(true);
 
-        /*subdeploymentColumn.setPreviewFactory((data, callback) ->
-                callback.onSuccess(TEMPLATE.deployment(data.getName(), data.getRuntimeName())));
-*/
-        subdeploymentColumn.addSelectionChangeHandler(
-                event -> {
-                    columnManager.reduceColumnsTo(4);
-                    if (subdeploymentColumn.hasSelectedItem()) {
-                        columnManager.updateActiveSelection(subdeploymentColumnWidget);
-                    }
-                });
+        subdeploymentColumn.setPreviewFactory((data, callback) ->
+                callback.onSuccess(TEMPLATE.subDeploymentPreview(data.getName(), data.getRuntimeName())));
 
-        // ------------------------------------------------------ deployments
-
-        deploymentColumn = new FinderColumn<>(
-                FinderColumn.FinderId.DEPLOYMENT,
-                "Deployment",
-                new FinderColumn.Display<DeploymentRecord>() {
-                    @Override
-                    public boolean isFolder(final DeploymentRecord data) {
-                        return data.isHasSubdeployments();
-                    }
-
-                    @Override
-                    public SafeHtml render(final String baseCss, final DeploymentRecord data) {
-                        return TEMPLATE.deployment(baseCss,
-                                Trim.abbreviateMiddle(data.getName(), 20),
-                                referenceServer.getHost(),
-                                referenceServer.getName()
-                        );
-                    }
-
-                    @Override
-                    public String rowCss(final DeploymentRecord data) {
-                        return "";
-                    }
-                },
-                new ProvidesKey<DeploymentRecord>() {
-                    @Override
-                    public Object getKey(final DeploymentRecord item) {
-                        return item.getName();
-                    }
-                }
-        );
-
-
-
-        //deploymentColumn.setShowSize(true);
-
-        /*deploymentColumn.setPreviewFactory((data, callback) ->
-                callback.onSuccess(TEMPLATE.deployment(data.getName(), data.getRuntimeName())));*/
-
-        deploymentColumn.addSelectionChangeHandler(
-                event -> {
-                    columnManager.reduceColumnsTo(3);
-                    if(deploymentColumn.hasSelectedItem()) {
-                        columnManager.updateActiveSelection(deploymentColumnWidget);
-
-                        DeploymentRecord selectedItem = deploymentColumn.getSelectedItem();
-
-                        columnManager.appendColumn(subdeploymentColumnWidget);
-                        presenter.loadSubdeployments(referenceServer, selectedItem);
-
-                    }
-                });
-
-
-
-        // -----
-
-        assignmentColumn = new FinderColumn<>(
-                FinderColumn.FinderId.DEPLOYMENT,
-                "Assignment",
-                new FinderColumn.Display<DeploymentRecord>() {
-                    @Override
-                    public boolean isFolder(final DeploymentRecord data) {
-                        return referenceServer!=null;
-                    }
-
-                    @Override
-                    public SafeHtml render(final String baseCss, final DeploymentRecord data) {
-                        return TEMPLATE.item(baseCss, Trim.abbreviateMiddle(data.getName(), 20), data.getName());
-                    }
-
-                    @Override
-                    public String rowCss(final DeploymentRecord data) {
-                        return referenceServer!=null ? "active" : "inactive";
-                    }
-                },
-                new ProvidesKey<DeploymentRecord>() {
-                    @Override
-                    public Object getKey(final DeploymentRecord item) {
-                        return item.getName();
-                    }
-                }
-        );
-
-        assignmentColumn.setTopMenuItems(new MenuDelegate<DeploymentRecord>(
-                "Add", new ContextualCommand<DeploymentRecord>() {
-            @Override
-            public void executeOn(DeploymentRecord item) {
-
-            }
-        }
-        ));
-
-        assignmentColumn.setMenuItems(
-                new MenuDelegate<DeploymentRecord>("Disable", new ContextualCommand<DeploymentRecord>() {
-                    @Override
-                    public void executeOn(DeploymentRecord item) {
-
-                    }
-                })
-        );
-
-
-        assignmentColumn.addSelectionChangeHandler(new SelectionChangeEvent.Handler() {
-            @Override
-            public void onSelectionChange(SelectionChangeEvent selectionChangeEvent) {
-                columnManager.reduceColumnsTo(2);
-                if(assignmentColumn.hasSelectedItem())
-                {
-                        columnManager.updateActiveSelection(assignmentColumnWidget);
-
-                    if(referenceServer!=null) {
-                        presenter.loadDeployment(
-                                assignmentColumn.getSelectedItem(),
-                                referenceServer
-                        );
-                    }
-
-                }
+        subdeploymentColumn.addSelectionChangeHandler(event -> {
+            columnManager.reduceColumnsTo(4);
+            if (subdeploymentColumn.hasSelectedItem()) {
+                columnManager.updateActiveSelection(subdeploymentColumnWidget);
             }
         });
-        // ----
+
 
         // setup UI
         serverGroupColumnWidget = serverGroupColumn.asWidget();
+        assignmentColumnWidget = assignmentColumn.asWidget();
         deploymentColumnWidget = deploymentColumn.asWidget();
         subdeploymentColumnWidget = subdeploymentColumn.asWidget();
-        assignmentColumnWidget = assignmentColumn.asWidget();
 
         contentCanvas = new LayoutPanel();
         layout = new SplitLayoutPanel(2);
@@ -337,42 +323,27 @@ public class DeploymentFinderView extends SuspendableViewImpl
     }
 
 
-    @Override
-    public void setPresenter(final DeploymentFinder presenter) {
-        this.presenter = presenter;
-    }
-
-
-    // ------------------------------------------------------ deployment related methods
-
+    // ------------------------------------------------------ update columns
 
     @Override
-    public void updateServerGroups(final List<ServerGroupRecord> serverGroups) {
-        serverGroupColumn.updateFrom(serverGroups);
-    }
-
-
-
-    @Override
-    public void updateAssignments(final List<DeploymentRecord> deployments) {
-        assignmentColumn.updateFrom(deployments);
+    public void updateServerGroups(final Iterable<ServerGroupRecord> serverGroups) {
+        serverGroupColumn.updateFrom(Lists.newArrayList(serverGroups));
     }
 
     @Override
-    public void updateDeployment(ServerInstance referenceServer, final DeploymentRecord deployment) {
-
-        ArrayList<DeploymentRecord> records = new ArrayList<DeploymentRecord>();
-        records.add(deployment);
-        deploymentColumn.updateFrom(records);
-
-        columnManager.appendColumn(deploymentColumnWidget);
+    public void updateAssignments(final Iterable<Assignment> assignments) {
+        assignmentColumn.updateFrom(Lists.newArrayList(assignments));
     }
 
     @Override
-    public void updateSubdeployments(ServerInstance referenceServer, final List<DeploymentRecord> subdeployments) {
-
-        subdeploymentColumn.updateFrom(subdeployments);
+    public void updateDeployments(Iterable<Deployment> deployments) {
+        deploymentColumn.updateFrom(Lists.newArrayList(deployments));
     }
+
+    @Override
+    public void updateSubdeployments(Iterable<Deployment> subDeployments) {
+    }
+
 
     // ------------------------------------------------------ slot management
 
@@ -411,25 +382,5 @@ public class DeploymentFinderView extends SuspendableViewImpl
         assignmentColumnWidget.getElement().removeClassName("active");
         deploymentColumnWidget.getElement().removeClassName("active");
         subdeploymentColumnWidget.getElement().removeClassName("active");
-    }
-
-    private void clearNestedPresenter() {
-        presenter.clearSlot(DeploymentFinder.TYPE_MainContent);
-        Scheduler.get().scheduleDeferred(() -> {
-            if (presenter.getPlaceManager().getHierarchyDepth() > 1) {
-                presenter.getPlaceManager().revealRelativePlace(1);
-            }
-        });
-    }
-
-    @Override
-    public void setReferenceServer(ServerInstance server) {
-
-        referenceServer = server;
-    }
-
-    @Override
-    public void noServerFound() {
-        columnManager.reduceColumnsTo(2);
     }
 }

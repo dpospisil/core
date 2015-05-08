@@ -24,9 +24,15 @@ package org.jboss.as.console.client.v3.deployment;
 import org.jboss.gwt.circuit.Action;
 
 /**
- * TODO Find a better name
- *
  * @author Harald Pehl
  */
-public class Reset implements Action {
+public class FindReferenceServer implements Action {
+
+    private final String serverGroup;
+
+    public FindReferenceServer(final String serverGroup) {this.serverGroup = serverGroup;}
+
+    public String getServerGroup() {
+        return serverGroup;
+    }
 }

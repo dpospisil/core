@@ -104,9 +104,9 @@ public class DeploymentContentFinder extends Presenter<DeploymentContentFinder.M
     @Override
     protected void onReset() {
         super.onReset();
-        if (deploymentStore.getSelectedDeployment() != null) {
-            findReferenceServer(deploymentStore.getSelectedDeployment());
-        }
+//        if (deploymentStore.getSelectedDeployment() != null) {
+//            findReferenceServer(deploymentStore.getSelectedDeployment());
+//        }
     }
 
 
