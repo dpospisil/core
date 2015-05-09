@@ -48,7 +48,7 @@ public class ReferenceServer {
         if (!(o instanceof ReferenceServer)) { return false; }
 
         ReferenceServer that = (ReferenceServer) o;
-
+        //noinspection SimplifiableIfStatement
         if (!host.equals(that.host)) { return false; }
         return server.equals(that.server);
 
@@ -61,6 +61,11 @@ public class ReferenceServer {
         return result;
     }
 
+    @Override
+    public String toString() {
+        return isStandalone() ? "ReferenceServer{STANDALONE}" : "ReferenceServer{" + host + "/" + server + "}";
+    }
+
     public String getHost() {
         return host;
     }
@@ -70,9 +75,11 @@ public class ReferenceServer {
     }
 
     public ResourceAddress getAddress() {
-        if (this == STANDALONE) {
+        if (isStandalone()) {
             return ResourceAddress.ROOT;
         }
         return new ResourceAddress().add("host", host).add("server", server);
     }
+
+    boolean isStandalone() {return this == STANDALONE;}
 }

@@ -24,62 +24,45 @@ package org.jboss.as.console.client.v3.deployment;
 import org.jboss.dmr.client.ModelNode;
 
 /**
- * An assigned deployment used in domain mode.
  * @author Harald Pehl
  */
-public class Assignment extends Content {
+public class Subsystem extends ModelNode {
 
-    private final String serverGroup;
+    private final String name;
     private final ModelNode node;
-    private ReferenceServer referenceServer;
 
-    public Assignment(final String serverGroup, final ModelNode node) {
-        super(node);
-        this.serverGroup = serverGroup;
+    public Subsystem(final String name, final ModelNode node) {
+        this.name = name;
         this.node = node;
+        set(node);
     }
 
     @Override
     public boolean equals(final Object o) {
         if (this == o) { return true; }
-        if (!(o instanceof Assignment)) { return false; }
+        if (!(o instanceof Subsystem)) { return false; }
         if (!super.equals(o)) { return false; }
 
-        Assignment that = (Assignment) o;
+        Subsystem subsystem = (Subsystem) o;
         //noinspection SimplifiableIfStatement
-        if (!serverGroup.equals(that.serverGroup)) { return false; }
-        return node.equals(that.node);
-
+        if (!name.equals(subsystem.name)) { return false; }
+        return node.equals(subsystem.node);
     }
 
     @Override
     public int hashCode() {
         int result = super.hashCode();
-        result = 31 * result + serverGroup.hashCode();
+        result = 31 * result + name.hashCode();
         result = 31 * result + node.hashCode();
         return result;
     }
 
-    public boolean isEnabled() {
-        ModelNode enabled = get("enabled");
-        //noinspection SimplifiableConditionalExpression
-        return enabled.isDefined() ? enabled.asBoolean() : false;
-    }
-
-    public String getServerGroup() {
-        return serverGroup;
+    public String getName() {
+        return name;
     }
 
     @Override
     public String toString() {
-        return "Assignment{" + getName() + "@" + serverGroup + ", " + (isEnabled() ? "enabled" : "disabled") + "}";
-    }
-
-    public ReferenceServer getReferenceServer() {
-        return referenceServer;
-    }
-
-    public void setReferenceServer(final ReferenceServer referenceServer) {
-        this.referenceServer = referenceServer;
+        return "Subsystem{" + name + "}";
     }
 }

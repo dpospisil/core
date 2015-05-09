@@ -43,16 +43,12 @@ import org.jboss.gwt.flow.client.Async;
 import org.jboss.gwt.flow.client.Outcome;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
-import static org.jboss.dmr.client.ModelDescriptionConstants.INCLUDE_RUNTIME;
-import static org.jboss.dmr.client.ModelDescriptionConstants.READ_CHILDREN_RESOURCES_OPERATION;
-import static org.jboss.dmr.client.ModelDescriptionConstants.RECURSIVE;
+import static org.jboss.dmr.client.ModelDescriptionConstants.*;
 
 /**
  * Circuit store for deployments.
@@ -75,7 +71,6 @@ public class DeploymentStore extends ChangeSupport {
     private final List<Content> repository;
     private final Set<Assignment> assignments; // for server group specified in LoadAssignments
     private final Set<Deployment> deployments; // for reference server specified in LoadDeployments
-    private final Map<String, ReferenceServer> referenceServers; // key == server group
 
     @Inject
     public DeploymentStore(final DispatchAsync dispatcher, final BeanFactory beanFactory) {
@@ -85,7 +80,6 @@ public class DeploymentStore extends ChangeSupport {
         this.repository = new ArrayList<>();
         this.assignments = new HashSet<>();
         this.deployments = new HashSet<>();
-        this.referenceServers = new HashMap<>();
     }
 
     @Process(actionType = ResetDeploymentStore.class)
@@ -98,7 +92,9 @@ public class DeploymentStore extends ChangeSupport {
 
     @Process(actionType = LoadRepository.class)
     public void loadRepository(final Dispatcher.Channel channel) {
-        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, ResourceAddress.ROOT).build();
+        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, ResourceAddress.ROOT)
+                .param(CHILD_TYPE, "deployment")
+                .build();
 
         dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
             @Override
@@ -112,7 +108,9 @@ public class DeploymentStore extends ChangeSupport {
                 if (result.isFailure()) {
                     channel.nack(result.getFailureDescription());
                 } else {
-                    List<Property> properties = result.asPropertyList();
+                    repository.clear();
+                    ModelNode payload = result.get(RESULT);
+                    List<Property> properties = payload.asPropertyList();
                     for (Property property : properties) {
                         repository.add(new Content(property.getValue()));
                     }
@@ -126,7 +124,9 @@ public class DeploymentStore extends ChangeSupport {
     public void loadAssignments(final LoadAssignments action, final Dispatcher.Channel channel) {
         final String serverGroup = action.getServerGroup();
         ResourceAddress address = new ResourceAddress().add("server-group", serverGroup);
-        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address).build();
+        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address)
+                .param(CHILD_TYPE, "deployment")
+                .build();
 
         dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
             @Override
@@ -141,7 +141,8 @@ public class DeploymentStore extends ChangeSupport {
                     channel.nack(result.getFailureDescription());
                 } else {
                     assignments.clear();
-                    List<Property> properties = result.asPropertyList();
+                    ModelNode payload = result.get(RESULT);
+                    List<Property> properties = payload.asPropertyList();
                     for (Property property : properties) {
                         assignments.add(new Assignment(serverGroup, property.getValue()));
                     }
@@ -160,7 +161,6 @@ public class DeploymentStore extends ChangeSupport {
 
             @Override
             public void onSuccess(final FunctionContext context) {
-                referenceServers.remove(serverGroup);
                 ReferenceServer referenceServer = null;
                 List<HostInfo> hosts = context.pop();
                 for (Iterator<HostInfo> i = hosts.iterator(); i.hasNext() && referenceServer == null; ) {
@@ -175,7 +175,9 @@ public class DeploymentStore extends ChangeSupport {
                     }
                 }
                 if (referenceServer != null) {
-                    referenceServers.put(serverGroup, referenceServer);
+                    for (Assignment assignment : assignments) {
+                        assignment.setReferenceServer(referenceServer);
+                    }
                 }
                 channel.ack();
             }
@@ -188,33 +190,43 @@ public class DeploymentStore extends ChangeSupport {
 
     @Process(actionType = LoadDeployments.class)
     public void loadDeployments(final LoadDeployments action, final Dispatcher.Channel channel) {
-        ResourceAddress address = action.getReferenceServer().getAddress();
-        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address)
-                .param(INCLUDE_RUNTIME, true)
-                .param(RECURSIVE, true)
-                .build();
+        Assignment assignment = action.getAssignment();
+        final ReferenceServer referenceServer = assignment.getReferenceServer();
+        if (referenceServer != null) {
+            Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, referenceServer.getAddress())
+                    .param(CHILD_TYPE, "deployment")
+                    .param(INCLUDE_RUNTIME, true)
+                    .param(RECURSIVE, true)
+                    .build();
 
-        dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
-            @Override
-            public void onFailure(final Throwable caught) {
-                channel.nack(caught);
-            }
-
-            @Override
-            public void onSuccess(final DMRResponse response) {
-                ModelNode result = response.get();
-                if (result.isFailure()) {
-                    channel.nack(result.getFailureDescription());
-                } else {
-                    deployments.clear();
-                    List<Property> properties = result.asPropertyList();
-                    for (Property property : properties) {
-                        deployments.add(new Deployment(action.getReferenceServer(), property.getValue()));
-                    }
-                    channel.ack();
+            dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+                @Override
+                public void onFailure(final Throwable caught) {
+                    channel.nack(caught);
                 }
-            }
-        });
+
+                @Override
+                public void onSuccess(final DMRResponse response) {
+                    ModelNode result = response.get();
+                    if (result.isFailure()) {
+                        channel.nack(result.getFailureDescription());
+                    } else {
+                        deployments.clear();
+                        ModelNode payload = result.get(RESULT);
+                        List<Property> properties = payload.asPropertyList();
+                        for (Property property : properties) {
+                            // filter by assignment
+                            if (property.getName().equals(assignment.getName())) {
+                                deployments.add(new Deployment(referenceServer, property.getValue()));
+                            }
+                        }
+                        channel.ack();
+                    }
+                }
+            });
+        } else {
+            channel.nack("No reference server found for " + action.getAssignment());
+        }
     }
 
 
@@ -225,14 +237,6 @@ public class DeploymentStore extends ChangeSupport {
      */
     public List<Content> getRepository() {
         return repository;
-    }
-
-    /**
-     * @return the running reference server for the specified server group or {@code null} if no reference server is
-     * available for that server group
-     */
-    public ReferenceServer getReferenceServer(String serverGroup) {
-        return referenceServers.get(serverGroup);
     }
 
     /**

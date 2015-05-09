@@ -48,6 +48,6 @@ public class Content extends ModelNode {
 
     @Override
     public String toString() {
-        return "Content {" + getName() + "}";
+        return "Content{" + getName() + "}";
     }
 }

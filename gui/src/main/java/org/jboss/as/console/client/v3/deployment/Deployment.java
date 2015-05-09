@@ -22,6 +22,10 @@
 package org.jboss.as.console.client.v3.deployment;
 
 import org.jboss.dmr.client.ModelNode;
+import org.jboss.dmr.client.Property;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A deployed and assigned content on a specific server.
@@ -35,13 +39,40 @@ public class Deployment extends Content {
     }
 
 
+    /**
+     * Expects a "subsystem" child resource
+     */
+    static void parseSubsystems(ModelNode node, List<Subsystem> subsystems) {
+        List<Property> properties = node.get("subsystem").asPropertyList();
+        for (Property property : properties) {
+            Subsystem subsystem = new Subsystem(property.getName(), property.getValue());
+            subsystems.add(subsystem);
+        }
+    }
+
+
     private final ReferenceServer referenceServer;
     private final ModelNode node;
+    private final List<Subdeployment> subdeployments;
+    private final List<Subsystem> subsystems;
 
     public Deployment(final ReferenceServer referenceServer, final ModelNode node) {
         super(node);
         this.referenceServer = referenceServer;
         this.node = node;
+
+        this.subdeployments = new ArrayList<>();
+        this.subsystems = new ArrayList<>();
+
+        if (node.hasDefined("subsystem")) {
+            parseSubsystems(node, subsystems);
+        } else if (node.hasDefined("subdeployment")) {
+            List<Property> properties = node.get("subdeployment").asPropertyList();
+            for (Property property : properties) {
+                Subdeployment subdeployment = new Subdeployment(property.getName(), property.getValue());
+                subdeployments.add(subdeployment);
+            }
+        }
     }
 
     @Override
@@ -67,19 +98,20 @@ public class Deployment extends Content {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("Deployment {").append(getName());
+        builder.append("Deployment{").append(getName());
         if (!isStandalone()) {
             builder.append("@").append(referenceServer.getHost()).append("/").append(referenceServer.getServer());
         }
         builder.append(", ")
                 .append((isEnabled() ? "enabled" : "disabled"))
+                .append(", ")
                 .append(getStatus());
         builder.append("}");
         return builder.toString();
     }
 
     public boolean isStandalone() {
-        return referenceServer == ReferenceServer.STANDALONE;
+        return referenceServer.isStandalone();
     }
 
     public ReferenceServer getReferenceServer() {
@@ -105,7 +137,15 @@ public class Deployment extends Content {
         return status;
     }
 
-    public boolean hasSubDeployments() {
-        return false; // TODO
+    public boolean hasSubdeployments() {
+        return !subdeployments.isEmpty();
+    }
+
+    public List<Subdeployment> getSubdeployments() {
+        return subdeployments;
+    }
+
+    public List<Subsystem> getSubsystems() {
+        return subsystems;
     }
 }

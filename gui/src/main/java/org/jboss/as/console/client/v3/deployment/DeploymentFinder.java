@@ -79,7 +79,6 @@ public class DeploymentFinder
         void updateServerGroups(Iterable<ServerGroupRecord> serverGroups);
         void updateAssignments(Iterable<Assignment> assignments);
         void updateDeployments(Iterable<Deployment> deployments);
-        void updateSubdeployments(Iterable<Deployment> subdeployments);
 
         void setPreview(SafeHtml html);
         void clearActiveSelection(ClearFinderSelectionEvent event);

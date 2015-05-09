@@ -21,18 +21,39 @@
  */
 package org.jboss.as.console.client.v3.deployment;
 
-import org.jboss.gwt.circuit.Action;
+import org.jboss.dmr.client.ModelNode;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author Harald Pehl
  */
-public class LoadDeployments implements Action {
+public class Subdeployment extends ModelNode {
 
-    private final Assignment assignment;
+    private final String name;
+    private final List<Subsystem> subsystems;
 
-    public LoadDeployments(final Assignment assignment) {this.assignment = assignment;}
+    public Subdeployment(final String name, final ModelNode node) {
+        this.name = name;
+        this.subsystems = new ArrayList<>();
+        set(node);
 
-    public Assignment getAssignment() {
-        return assignment;
+        if (node.hasDefined("subsystem")) {
+            Deployment.parseSubsystems(node, subsystems);
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "Subdeployment{" + name + "}";
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public List<Subsystem> getSubsystems() {
+        return subsystems;
     }
 }
