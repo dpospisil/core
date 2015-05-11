@@ -34,6 +34,8 @@ import com.gwtplatform.mvp.client.proxy.ProxyPlace;
 import com.gwtplatform.mvp.client.proxy.RevealContentEvent;
 import com.gwtplatform.mvp.client.proxy.RevealContentHandler;
 import com.gwtplatform.mvp.shared.proxy.PlaceRequest;
+import org.jboss.as.console.client.Console;
+import org.jboss.as.console.client.core.HasPresenter;
 import org.jboss.as.console.client.core.Header;
 import org.jboss.as.console.client.core.MainLayoutPresenter;
 import org.jboss.as.console.client.core.NameTokens;
@@ -49,6 +51,8 @@ import org.jboss.as.console.client.widgets.nav.v3.PreviewEvent;
 import org.jboss.as.console.spi.OperationMode;
 import org.jboss.as.console.spi.RequiredResources;
 import org.jboss.as.console.spi.SearchIndex;
+import org.jboss.ballroom.client.widgets.window.Feedback;
+import org.jboss.gwt.circuit.Action;
 import org.jboss.gwt.circuit.Dispatcher;
 
 import static org.jboss.as.console.spi.OperationMode.Mode.DOMAIN;
@@ -75,7 +79,7 @@ public class DeploymentFinder
     public interface MyProxy extends ProxyPlace<DeploymentFinder> {
     }
 
-    public interface MyView extends View {
+    public interface MyView extends View, HasPresenter<DeploymentFinder> {
         void updateServerGroups(Iterable<ServerGroupRecord> serverGroups);
         void updateAssignments(Iterable<Assignment> assignments);
         void updateDeployments(Iterable<Deployment> deployments);
@@ -121,8 +125,17 @@ public class DeploymentFinder
         registerHandler(getEventBus().addHandler(ClearFinderSelectionEvent.TYPE, this));
 
         // circuit handler
+        // TODO Depending on the action reset finder / column selection
         registerHandler(deploymentStore.addChangeHandler(action -> {
-            if (action instanceof LoadAssignments) {
+            if (action instanceof AddAssignment) {
+                getView().updateAssignments(deploymentStore.getAssignments());
+            } else if (action instanceof EnableAssignment) {
+                getView().updateAssignments(deploymentStore.getAssignments());
+            } else if (action instanceof DisableAssignment) {
+                getView().updateAssignments(deploymentStore.getAssignments());
+            } else if (action instanceof RemoveAssignment) {
+                getView().updateAssignments(deploymentStore.getAssignments());
+            } else if (action instanceof LoadAssignments) {
                 getView().updateAssignments(deploymentStore.getAssignments());
             } else if (action instanceof LoadDeployments) {
                 getView().updateDeployments(deploymentStore.getDeployments());
@@ -143,6 +156,35 @@ public class DeploymentFinder
     @Override
     protected void revealInParent() {
         RevealContentEvent.fire(this, MainLayoutPresenter.TYPE_MainContent, this);
+    }
+
+
+    // ------------------------------------------------------ deployment methods
+
+    public void launchAddAssignmentWizard() {
+        Console.warning("Add assignment not yet implemented");
+    }
+
+    public void verifyEnableDisableAssignment(Assignment assignment) {
+        String message;
+        Action action;
+        if (assignment.isEnabled()) {
+            message = "Disable " + assignment.getName();
+            action = new DisableAssignment(assignment);
+        } else {
+            message = "Enable " + assignment.getName();
+            action = new EnableAssignment(assignment);
+        }
+        Feedback.confirm(Console.CONSTANTS.common_label_areYouSure(), message, isConfirmed -> circuit.dispatch(action));
+    }
+
+    public void verifyRemoveAssignment(Assignment assignment) {
+        Feedback.confirm(Console.CONSTANTS.common_label_areYouSure(), "Remove " + assignment.getName(),
+                isConfirmed -> circuit.dispatch(new RemoveAssignment(assignment)));
+    }
+
+    public void launchUpdateAssignmentWizard() {
+        Console.warning("Update assignment not yet implemented");
     }
 
 

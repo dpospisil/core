@@ -24,6 +24,9 @@ package org.jboss.as.console.client.v3.deployment;
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.safehtml.client.SafeHtmlTemplates;
 import com.google.gwt.safehtml.shared.SafeHtml;
+import com.google.gwt.safehtml.shared.SafeHtmlBuilder;
+
+import java.util.List;
 
 /**
  * @author Harald Pehl
@@ -36,17 +39,11 @@ final class Templates {
 
     interface Items extends SafeHtmlTemplates {
 
-        @Template("<div class=\"{0}\">{1}</div>")
-        SafeHtml full(String cssClass, String name);
-
-        @Template("<div class=\"{0}\" title=\"{1}\">{2}</div>")
-        SafeHtml trimmed(String cssClass, String full, String trimmed);
+        @Template("<div class=\"{0}\" title=\"{2}\">{1}</div>")
+        SafeHtml item(String cssClass, String name, String title);
 
         @Template("<div class=\"{0}\">Host: {1}<br/>Server: {2}</div>")
         SafeHtml deployment(String cssClass, String host, String server);
-
-        @Template("<div class=\"{0}\" title=\"{1}\">{2}</div>")
-        SafeHtml subdeployment(String cssClass, String full, String trimmed);
     }
 
 
@@ -55,10 +52,9 @@ final class Templates {
         @Template("<div class='preview-content'><h2>{0}</h2>" +
                 "<ul>" +
                 "<li>{1}</li>" +
-                "<li>{2}</li>" +
                 "</ul>" +
                 "</div>")
-        SafeHtml assignment(String name, String enabledDisabled, String referenceServerInfo);
+        SafeHtml assignment(String name, String enabledDisabled);
 
         @Template("<div class='preview-content'><h2>{0}</h2>" +
                 "<ul>" +
@@ -66,10 +62,42 @@ final class Templates {
                 "<li>Host: {2}</li>" +
                 "<li>Server: {3}</li>" +
                 "</ul>" +
+                "{4}" +
                 "</div>")
-        SafeHtml deployment(String name, String runtimeName, String host, String server);
+        SafeHtml deployment(String name, String runtimeName, String host, String server, SafeHtml summary);
 
-        @Template("<div class='preview-content'><h2>{0}</h2></div>")
-        SafeHtml subdeployment(String name);
+        @Template("<div class='preview-content'><h2>{0}</h2>{1}</div>")
+        SafeHtml subdeployment(String name, SafeHtml summary);
+    }
+
+
+    static SafeHtml deploymentSummary(Deployment deployment) {
+        final SafeHtmlBuilder builder = new SafeHtmlBuilder();
+        if (deployment.hasSubdeployments()) {
+            builder.appendHtmlConstant("<h3>").appendEscaped("Sub Deployments").appendHtmlConstant("</h3>");
+            builder.appendHtmlConstant("<ul>");
+            for (Subdeployment subdeployment : deployment.getSubdeployments()) {
+                builder.appendHtmlConstant("<li>").appendEscaped(subdeployment.getName()).appendHtmlConstant("</li>");
+            }
+            builder.appendHtmlConstant("</ul>");
+        } else if (!deployment.getSubsystems().isEmpty()) {
+            subsystemsSummary(builder, deployment.getSubsystems());
+        }
+        return builder.toSafeHtml();
+    }
+
+    static SafeHtml subdeploymentSummary(Subdeployment subdeployment) {
+        final SafeHtmlBuilder builder = new SafeHtmlBuilder();
+        subsystemsSummary(builder, subdeployment.getSubsystems());
+        return builder.toSafeHtml();
+    }
+
+    static void subsystemsSummary(SafeHtmlBuilder builder, List<Subsystem> subsystems) {
+        builder.appendHtmlConstant("<h3>").appendEscaped("Subsystems").appendHtmlConstant("</h3>");
+        builder.appendHtmlConstant("<ul>");
+        for (Subsystem subsystem : subsystems) {
+            builder.appendHtmlConstant("<li>").appendEscaped(subsystem.getName()).appendHtmlConstant("</li>");
+        }
+        builder.appendHtmlConstant("</ul>");
     }
 }

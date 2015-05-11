@@ -120,6 +120,70 @@ public class DeploymentStore extends ChangeSupport {
         });
     }
 
+    @Process(actionType = AddAssignment.class)
+    public void addAssignment(final AddAssignment action, final Dispatcher.Channel channel) {
+        ResourceAddress address = new ResourceAddress()
+                .add("server-group", action.getServerGroup())
+                .add("deployment", action.getContent().getName());
+        final Operation op = new Operation.Builder(ADD, address).build();
+        dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                channel.nack(caught);
+            }
+
+            @Override
+            public void onSuccess(final DMRResponse response) {
+                ModelNode result = response.get();
+                if (result.isFailure()) {
+                    channel.nack(result.getFailureDescription());
+                } else {
+                    loadAssignments(new LoadAssignments(action.getServerGroup()), channel);
+                }
+            }
+        });
+    }
+
+    @Process(actionType = EnableAssignment.class)
+    public void enableAssignment(final EnableAssignment action, final Dispatcher.Channel channel) {
+        modifyAssignment(action.getAssignment(), "deploy", channel);
+    }
+
+    @Process(actionType = DisableAssignment.class)
+    public void disableAssignment(final DisableAssignment action, final Dispatcher.Channel channel) {
+        modifyAssignment(action.getAssignment(), "undeploy", channel);
+    }
+
+    @Process(actionType = RemoveAssignment.class)
+    public void removeAssignment(final RemoveAssignment action, final Dispatcher.Channel channel) {
+        modifyAssignment(action.getAssignment(), "remove", channel);
+    }
+
+    private void modifyAssignment(final Assignment assignment, final String operation,
+            final Dispatcher.Channel channel) {
+        final String serverGroup = assignment.getServerGroup();
+        ResourceAddress address = new ResourceAddress()
+                .add("server-group", serverGroup)
+                .add("deployment", assignment.getName());
+        final Operation op = new Operation.Builder(operation, address).build();
+        dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                channel.nack(caught);
+            }
+
+            @Override
+            public void onSuccess(final DMRResponse response) {
+                ModelNode result = response.get();
+                if (result.isFailure()) {
+                    channel.nack(result.getFailureDescription());
+                } else {
+                    loadAssignments(new LoadAssignments(serverGroup), channel);
+                }
+            }
+        });
+    }
+
     @Process(actionType = LoadAssignments.class)
     public void loadAssignments(final LoadAssignments action, final Dispatcher.Channel channel) {
         final String serverGroup = action.getServerGroup();
