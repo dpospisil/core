@@ -21,8 +21,10 @@
  */
 package org.jboss.as.console.client.v3.deployment;
 
+import com.google.gwt.core.client.Scheduler.ScheduledCommand;
 import com.google.gwt.event.shared.GwtEvent;
 import com.google.gwt.safehtml.shared.SafeHtml;
+import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.inject.Inject;
 import com.google.web.bindery.event.shared.EventBus;
 import com.gwtplatform.mvp.client.View;
@@ -35,13 +37,21 @@ import com.gwtplatform.mvp.client.proxy.RevealContentEvent;
 import com.gwtplatform.mvp.client.proxy.RevealContentHandler;
 import com.gwtplatform.mvp.shared.proxy.PlaceRequest;
 import org.jboss.as.console.client.Console;
+import org.jboss.as.console.client.core.Footer;
 import org.jboss.as.console.client.core.HasPresenter;
 import org.jboss.as.console.client.core.Header;
 import org.jboss.as.console.client.core.MainLayoutPresenter;
 import org.jboss.as.console.client.core.NameTokens;
 import org.jboss.as.console.client.domain.model.ServerGroupRecord;
+import org.jboss.as.console.client.domain.model.ServerInstance;
+import org.jboss.as.console.client.domain.topology.HostInfo;
+import org.jboss.as.console.client.domain.topology.TopologyFunctions;
 import org.jboss.as.console.client.rbac.UnauthorisedPresenter;
+import org.jboss.as.console.client.shared.BeanFactory;
+import org.jboss.as.console.client.shared.flow.FunctionContext;
 import org.jboss.as.console.client.shared.state.PerspectivePresenter;
+import org.jboss.as.console.client.v3.dmr.Operation;
+import org.jboss.as.console.client.v3.dmr.ResourceAddress;
 import org.jboss.as.console.client.v3.presenter.Finder;
 import org.jboss.as.console.client.v3.stores.domain.ServerGroupStore;
 import org.jboss.as.console.client.v3.stores.domain.actions.RefreshServerGroups;
@@ -52,10 +62,23 @@ import org.jboss.as.console.spi.OperationMode;
 import org.jboss.as.console.spi.RequiredResources;
 import org.jboss.as.console.spi.SearchIndex;
 import org.jboss.ballroom.client.widgets.window.Feedback;
-import org.jboss.gwt.circuit.Action;
+import org.jboss.dmr.client.ModelNode;
+import org.jboss.dmr.client.Property;
+import org.jboss.dmr.client.dispatch.DispatchAsync;
+import org.jboss.dmr.client.dispatch.impl.DMRAction;
+import org.jboss.dmr.client.dispatch.impl.DMRResponse;
 import org.jboss.gwt.circuit.Dispatcher;
+import org.jboss.gwt.flow.client.Async;
+import org.jboss.gwt.flow.client.Outcome;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 import static org.jboss.as.console.spi.OperationMode.Mode.DOMAIN;
+import static org.jboss.dmr.client.ModelDescriptionConstants.*;
 
 /**
  * @author Harald Pehl
@@ -95,29 +118,34 @@ public class DeploymentFinder
     @ContentSlot
     public static final GwtEvent.Type<RevealContentHandler<?>> TYPE_MainContent = new GwtEvent.Type<>();
 
+    private final BeanFactory beanFactory;
+    private final DispatchAsync dispatcher;
     private final Dispatcher circuit;
-    private final DeploymentStore deploymentStore;
     private final ServerGroupStore serverGroupStore;
+    private final Map<String, ReferenceServer> referenceServers;
 
 
     // ------------------------------------------------------ presenter lifecycle
 
     @Inject
     public DeploymentFinder(final EventBus eventBus, final MyView view, final MyProxy proxy,
-            final Dispatcher circuit, final PlaceManager placeManager, final Header header,
-            final UnauthorisedPresenter unauthorisedPresenter,
-            final DeploymentStore deploymentStore, final ServerGroupStore serverGroupStore) {
+            final PlaceManager placeManager, final UnauthorisedPresenter unauthorisedPresenter,
+            final BeanFactory beanFactory, final DispatchAsync dispatcher, final Dispatcher circuit,
+            final ServerGroupStore serverGroupStore, final Header header) {
         super(eventBus, view, proxy, placeManager, header, NameTokens.DeploymentFinder,
                 unauthorisedPresenter, TYPE_MainContent);
+        this.beanFactory = beanFactory;
+        this.dispatcher = dispatcher;
         this.circuit = circuit;
-        this.deploymentStore = deploymentStore;
         this.serverGroupStore = serverGroupStore;
+        this.referenceServers = new HashMap<>();
     }
 
     @Override
     @SuppressWarnings("unchecked")
     protected void onBind() {
         super.onBind();
+        getView().setPresenter(this);
 
         // GWT event handler
         registerHandler(getEventBus().addHandler(PreviewEvent.TYPE, this));
@@ -125,22 +153,6 @@ public class DeploymentFinder
         registerHandler(getEventBus().addHandler(ClearFinderSelectionEvent.TYPE, this));
 
         // circuit handler
-        // TODO Depending on the action reset finder / column selection
-        registerHandler(deploymentStore.addChangeHandler(action -> {
-            if (action instanceof AddAssignment) {
-                getView().updateAssignments(deploymentStore.getAssignments());
-            } else if (action instanceof EnableAssignment) {
-                getView().updateAssignments(deploymentStore.getAssignments());
-            } else if (action instanceof DisableAssignment) {
-                getView().updateAssignments(deploymentStore.getAssignments());
-            } else if (action instanceof RemoveAssignment) {
-                getView().updateAssignments(deploymentStore.getAssignments());
-            } else if (action instanceof LoadAssignments) {
-                getView().updateAssignments(deploymentStore.getAssignments());
-            } else if (action instanceof LoadDeployments) {
-                getView().updateDeployments(deploymentStore.getDeployments());
-            }
-        }));
         registerHandler(serverGroupStore.addChangeHandler(RefreshServerGroups.class, action -> {
             getView().updateServerGroups(serverGroupStore.getServerGroups());
         }));
@@ -149,7 +161,6 @@ public class DeploymentFinder
     @Override
     protected void onFirstReveal(final PlaceRequest placeRequest, final PlaceManager placeManager,
             final boolean revealDefault) {
-        circuit.dispatch(new ResetDeploymentStore());
         circuit.dispatch(new RefreshServerGroups());
     }
 
@@ -161,30 +172,201 @@ public class DeploymentFinder
 
     // ------------------------------------------------------ deployment methods
 
+    private void loadContentRepository(final AsyncCallback<List<Content>> callback) {
+        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, ResourceAddress.ROOT)
+                .param(CHILD_TYPE, "deployment")
+                .build();
+
+        dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                callback.onFailure(caught);
+            }
+
+            @Override
+            public void onSuccess(final DMRResponse response) {
+                ModelNode result = response.get();
+                if (result.isFailure()) {
+                    callback.onFailure(new RuntimeException(result.getFailureDescription()));
+                } else {
+                    List<Content> repository = new ArrayList<>();
+                    ModelNode payload = result.get(RESULT);
+                    List<Property> properties = payload.asPropertyList();
+                    for (Property property : properties) {
+                        repository.add(new Content(property.getValue()));
+                    }
+                    callback.onSuccess(repository);
+                }
+            }
+        });
+    }
+
     public void launchAddAssignmentWizard() {
         Console.warning("Add assignment not yet implemented");
     }
 
-    public void verifyEnableDisableAssignment(Assignment assignment) {
-        String message;
-        Action action;
-        if (assignment.isEnabled()) {
-            message = "Disable " + assignment.getName();
-            action = new DisableAssignment(assignment);
-        } else {
-            message = "Enable " + assignment.getName();
-            action = new EnableAssignment(assignment);
-        }
-        Feedback.confirm(Console.CONSTANTS.common_label_areYouSure(), message, isConfirmed -> circuit.dispatch(action));
-    }
-
-    public void verifyRemoveAssignment(Assignment assignment) {
-        Feedback.confirm(Console.CONSTANTS.common_label_areYouSure(), "Remove " + assignment.getName(),
-                isConfirmed -> circuit.dispatch(new RemoveAssignment(assignment)));
-    }
-
     public void launchUpdateAssignmentWizard() {
         Console.warning("Update assignment not yet implemented");
+    }
+
+    public void verifyEnableDisableAssignment(final Assignment assignment) {
+        String message;
+        String operation;
+        if (assignment.isEnabled()) {
+            message = "Disable " + assignment.getName();
+            operation = "undeploy";
+        } else {
+            message = "Enable " + assignment.getName();
+            operation = "deploy";
+        }
+        Feedback.confirm(Console.CONSTANTS.common_label_areYouSure(), message,
+                isConfirmed -> {
+                    if (isConfirmed) {
+                        modifyAssignment(assignment, operation);
+                    }
+                });
+    }
+
+    public void verifyRemoveAssignment(final Assignment assignment) {
+        Feedback.confirm(Console.CONSTANTS.common_label_areYouSure(), "Remove " + assignment.getName(),
+                isConfirmed -> {
+                    if (isConfirmed) {
+                        modifyAssignment(assignment, REMOVE);
+                    }
+                });
+    }
+
+    private void modifyAssignment(final Assignment assignment, final String operation) {
+        final String serverGroup = assignment.getServerGroup();
+        ResourceAddress address = new ResourceAddress()
+                .add("server-group", serverGroup)
+                .add("deployment", assignment.getName());
+        final Operation op = new Operation.Builder(operation, address).build();
+        dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                // TODO Error handling
+            }
+
+            @Override
+            public void onSuccess(final DMRResponse response) {
+                ModelNode result = response.get();
+                if (result.isFailure()) {
+                    // TODO Error handling
+                } else {
+                    loadAssignments(serverGroup, false);
+                }
+            }
+        });
+    }
+
+    public void loadAssignments(final String serverGroup, final boolean lookupReferenceServer) {
+        ResourceAddress address = new ResourceAddress().add("server-group", serverGroup);
+        Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, address)
+                .param(CHILD_TYPE, "deployment")
+                .build();
+
+        dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                // TODO Error handling
+            }
+
+            @Override
+            public void onSuccess(final DMRResponse response) {
+                ModelNode result = response.get();
+                if (result.isFailure()) {
+                    // TODO Error handling
+                } else {
+                    List<Assignment> assignments = new ArrayList<>();
+                    ModelNode payload = result.get(RESULT);
+                    List<Property> properties = payload.asPropertyList();
+                    for (Property property : properties) {
+                        assignments.add(new Assignment(serverGroup, property.getValue()));
+                    }
+                    if (lookupReferenceServer) {
+                        findReferenceServer(serverGroup,
+                                () -> getView().updateAssignments(assignments));
+                    } else {
+                        getView().updateAssignments(assignments);
+                    }
+                }
+            }
+        });
+    }
+
+    private void findReferenceServer(final String serverGroup, final ScheduledCommand andThen) {
+        Outcome<FunctionContext> outcome = new Outcome<FunctionContext>() {
+            @Override
+            public void onFailure(final FunctionContext context) {
+                // TODO Error handling
+            }
+
+            @Override
+            public void onSuccess(final FunctionContext context) {
+                ReferenceServer referenceServer = null;
+                List<HostInfo> hosts = context.pop();
+                for (Iterator<HostInfo> i = hosts.iterator(); i.hasNext() && referenceServer == null; ) {
+                    HostInfo host = i.next();
+                    List<ServerInstance> serverInstances = host.getServerInstances();
+                    for (Iterator<ServerInstance> j = serverInstances.iterator();
+                            j.hasNext() && referenceServer == null; ) {
+                        ServerInstance server = j.next();
+                        if (server.isRunning() && server.getGroup().equals(serverGroup)) {
+                            referenceServer = new ReferenceServer(server.getHost(), server.getName());
+                        }
+                    }
+                }
+                referenceServers.remove(serverGroup);
+                if (referenceServer != null) {
+                    referenceServers.put(serverGroup, referenceServer);
+                }
+                andThen.execute();
+            }
+        };
+        new Async<FunctionContext>(Footer.PROGRESS_ELEMENT).waterfall(new FunctionContext(), outcome,
+                new TopologyFunctions.HostsAndGroups(dispatcher),
+                new TopologyFunctions.ServerConfigs(dispatcher, beanFactory),
+                new TopologyFunctions.RunningServerInstances(dispatcher));
+    }
+
+    public void loadDeployments(final Assignment assignment) {
+        final ReferenceServer referenceServer = referenceServers.get(assignment.getServerGroup());
+        if (referenceServer != null) {
+            Operation op = new Operation.Builder(READ_CHILDREN_RESOURCES_OPERATION, referenceServer.getAddress())
+                    .param(CHILD_TYPE, "deployment")
+                    .param(INCLUDE_RUNTIME, true)
+                    .param(RECURSIVE, true)
+                    .build();
+
+            dispatcher.execute(new DMRAction(op), new AsyncCallback<DMRResponse>() {
+                @Override
+                public void onFailure(final Throwable caught) {
+                    // TODO Error handling
+                }
+
+                @Override
+                public void onSuccess(final DMRResponse response) {
+                    ModelNode result = response.get();
+                    if (result.isFailure()) {
+                        // TODO Error handling
+                    } else {
+                        List<Deployment> deployments = new ArrayList<Deployment>();
+                        ModelNode payload = result.get(RESULT);
+                        List<Property> properties = payload.asPropertyList();
+                        for (Property property : properties) {
+                            // filter by assignment
+                            if (property.getName().equals(assignment.getName())) {
+                                deployments.add(new Deployment(referenceServer, property.getValue()));
+                            }
+                        }
+                        getView().updateDeployments(deployments);
+                    }
+                }
+            });
+        } else {
+            // TODO Error handling
+        }
     }
 
 
@@ -195,14 +377,25 @@ public class DeploymentFinder
         getView().setPreview(event.getHtml());
     }
 
+
     @Override
     public void onToggleScrolling(final FinderScrollEvent event) {
         getView().toggleScrolling(event.isEnforceScrolling(), event.getRequiredWidth());
     }
 
-
     @Override
     public void onClearActiveSelection(final ClearFinderSelectionEvent event) {
         getView().clearActiveSelection(event);
+    }
+
+
+    // ------------------------------------------------------ state
+
+    public ReferenceServer getReferenceServer(String serverGroup) {
+        return referenceServers.get(serverGroup);
+    }
+
+    public boolean hasReferenceServer(Assignment assignment) {
+        return getReferenceServer(assignment.getServerGroup()) != null;
     }
 }

@@ -40,7 +40,6 @@ import org.jboss.as.console.client.widgets.nav.v3.ClearFinderSelectionEvent;
 import org.jboss.as.console.client.widgets.nav.v3.ColumnManager;
 import org.jboss.as.console.client.widgets.nav.v3.FinderColumn;
 import org.jboss.as.console.client.widgets.nav.v3.MenuDelegate;
-import org.jboss.gwt.circuit.Dispatcher;
 
 /**
  * @author Harald Pehl
@@ -64,7 +63,7 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
     @Inject
     @SuppressWarnings("unchecked")
-    public DeploymentFinderView(Dispatcher circuit, PreviewContentFactory contentFactory) {
+    public DeploymentFinderView(PreviewContentFactory contentFactory) {
 
         // ------------------------------------------------------ server group
 
@@ -106,7 +105,7 @@ public class DeploymentFinderView extends SuspendableViewImpl
             if (serverGroupColumn.hasSelectedItem()) {
                 columnManager.updateActiveSelection(serverGroupColumnWidget);
                 columnManager.appendColumn(assignmentColumnWidget);
-                circuit.dispatch(new LoadAssignments(serverGroupColumn.getSelectedItem().getName()));
+                presenter.loadAssignments(serverGroupColumn.getSelectedItem().getName(), true);
             }
         });
 
@@ -119,12 +118,12 @@ public class DeploymentFinderView extends SuspendableViewImpl
                 new FinderColumn.Display<Assignment>() {
                     @Override
                     public boolean isFolder(final Assignment data) {
-                        return hasReferenceServer(data) && data.isEnabled();
+                        return presenter.hasReferenceServer(data) && data.isEnabled();
                     }
 
                     @Override
                     public SafeHtml render(final String baseCss, final Assignment data) {
-                        if (!hasReferenceServer(data)) {
+                        if (!presenter.hasReferenceServer(data)) {
                             return Templates.ITEMS.item(baseCss, Trim.abbreviateMiddle(data.getName(), 20),
                                     data.getName() + " (no reference server available)");
                         } else if (!data.isEnabled()) {
@@ -137,18 +136,13 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
                     @Override
                     public String rowCss(final Assignment data) {
-                        if (data.getReferenceServer() == null) {
+                        if (!presenter.hasReferenceServer(data)) {
                             return "noReferenceServer";
                         } else if (!data.isEnabled()) {
                             return "inactive";
                         }
                         return "active";
                     }
-
-                    private boolean hasReferenceServer(final Assignment data) {
-                        return data.getReferenceServer() != null;
-                    }
-
                 },
                 new ProvidesKey<Assignment>() {
                     @Override
@@ -162,10 +156,11 @@ public class DeploymentFinderView extends SuspendableViewImpl
 
         assignmentColumn.setTopMenuItems(
                 new MenuDelegate<>("Add", item -> presenter.launchAddAssignmentWizard()),
-                new MenuDelegate<>("Refresh", item -> circuit.dispatch(
-                        new LoadAssignments(serverGroupColumn.getSelectedItem().getName())))
+                new MenuDelegate<>("Refresh",
+                        item -> presenter.loadAssignments(serverGroupColumn.getSelectedItem().getName(), true))
         );
 
+        //noinspection Convert2MethodRef
         assignmentColumn.setMenuItems(
                 new MenuDelegate<>("(En/Dis)able", item -> presenter.verifyEnableDisableAssignment(item)),
                 new MenuDelegate<>("Update", item -> presenter.launchUpdateAssignmentWizard()),
@@ -181,9 +176,9 @@ public class DeploymentFinderView extends SuspendableViewImpl
             if (assignmentColumn.hasSelectedItem()) {
                 columnManager.updateActiveSelection(assignmentColumnWidget);
                 Assignment assignment = assignmentColumn.getSelectedItem();
-                if (assignment.getReferenceServer() != null && assignment.isEnabled()) {
+                if (presenter.hasReferenceServer(assignment) && assignment.isEnabled()) {
                     columnManager.appendColumn(deploymentColumnWidget);
-                    circuit.dispatch(new LoadDeployments(assignment));
+                    presenter.loadDeployments(assignment);
                 }
             }
         });

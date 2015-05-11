@@ -31,7 +31,6 @@ public class Assignment extends Content {
 
     private final String serverGroup;
     private final ModelNode node;
-    private ReferenceServer referenceServer;
 
     public Assignment(final String serverGroup, final ModelNode node) {
         super(node);
@@ -73,13 +72,5 @@ public class Assignment extends Content {
     @Override
     public String toString() {
         return "Assignment{" + getName() + "@" + serverGroup + ", " + (isEnabled() ? "enabled" : "disabled") + "}";
-    }
-
-    public ReferenceServer getReferenceServer() {
-        return referenceServer;
-    }
-
-    public void setReferenceServer(final ReferenceServer referenceServer) {
-        this.referenceServer = referenceServer;
     }
 }
